@@ -43,6 +43,7 @@ async function startServer() {
           error: 'Cloud SQL database belum dikonfigurasi pada environment runtime ini',
         });
       }
+
       const userUid = req.user?.uid || 'anonymous';
       const { classId, namaKelas, mataPelajaran, kkm, totalStudents } = req.body;
 
@@ -73,7 +74,7 @@ async function startServer() {
       await db.insert(cloudActivityLogs).values({
         userUid,
         action: 'SYNC_CLASS',
-        details: `Sinkronisasi kelas ${namaKelas} (${classId})`,
+        details: `Sinkronisasi kelas \( {namaKelas} ( \){classId})`,
       });
 
       return res.json({ success: true, message: 'Kelas berhasil disinkronkan ke Cloud SQL' });
@@ -92,6 +93,7 @@ async function startServer() {
           error: 'Cloud SQL database belum dikonfigurasi',
         });
       }
+
       const userUid = req.user?.uid;
       if (!userUid) {
         return res.status(401).json({ error: 'User tidak teridentifikasi' });
