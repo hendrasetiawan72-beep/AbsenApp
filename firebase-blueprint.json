@@ -1,0 +1,45 @@
+{
+  "entities": {
+    "ClassRoom": {
+      "title": "ClassRoom",
+      "description": "Data kelas dan mata pelajaran guru",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "namaKelas": { "type": "string", "maxLength": 100 },
+        "mataPelajaran": { "type": "string", "maxLength": 100 },
+        "kkm": { "type": "number" },
+        "jurusan": { "type": "string", "maxLength": 100 },
+        "keterangan": { "type": "string", "maxLength": 255 },
+        "teacherUid": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "namaKelas", "mataPelajaran", "teacherUid"]
+    },
+    "AttendanceSession": {
+      "title": "AttendanceSession",
+      "description": "Sesi presensi pertemuan kelas harian",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "classId": { "type": "string", "maxLength": 128 },
+        "tanggal": { "type": "string", "maxLength": 30 },
+        "pertemuanKe": { "type": "number" },
+        "topikMateri": { "type": "string", "maxLength": 255 },
+        "teacherUid": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "classId", "tanggal", "pertemuanKe", "teacherUid"]
+    }
+  },
+  "firestore": {
+    "/classes/{classId}": {
+      "schema": "ClassRoom",
+      "description": "Koleksi data kelas per guru"
+    },
+    "/attendance_sessions/{sessionId}": {
+      "schema": "AttendanceSession",
+      "description": "Koleksi sesi presensi pertemuan"
+    }
+  }
+}

@@ -1,0 +1,49 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Default-deny catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isValidClass(data) {
+      return data.id is string && data.id.size() <= 128
+        && data.namaKelas is string && data.namaKelas.size() <= 100
+        && data.mataPelajaran is string && data.mataPelajaran.size() <= 100
+        && data.teacherUid == request.auth.uid;
+    }
+
+    function isValidSession(data) {
+      return data.id is string && data.id.size() <= 128
+        && data.classId is string && data.classId.size() <= 128
+        && data.tanggal is string && data.tanggal.size() <= 30
+        && data.teacherUid == request.auth.uid;
+    }
+
+    match /classes/{classId} {
+      allow get: if isSignedIn() && isValidId(classId) && resource.data.teacherUid == request.auth.uid;
+      allow list: if isSignedIn() && resource.data.teacherUid == request.auth.uid;
+      allow create: if isSignedIn() && isValidId(classId) && isValidClass(request.resource.data);
+      allow update: if isSignedIn() && isValidId(classId) && isValidClass(request.resource.data)
+                    && request.resource.data.teacherUid == resource.data.teacherUid;
+      allow delete: if isSignedIn() && isValidId(classId) && resource.data.teacherUid == request.auth.uid;
+    }
+
+    match /attendance_sessions/{sessionId} {
+      allow get: if isSignedIn() && isValidId(sessionId) && resource.data.teacherUid == request.auth.uid;
+      allow list: if isSignedIn() && resource.data.teacherUid == request.auth.uid;
+      allow create: if isSignedIn() && isValidId(sessionId) && isValidSession(request.resource.data);
+      allow update: if isSignedIn() && isValidId(sessionId) && isValidSession(request.resource.data)
+                    && request.resource.data.teacherUid == resource.data.teacherUid;
+      allow delete: if isSignedIn() && isValidId(sessionId) && resource.data.teacherUid == request.auth.uid;
+    }
+  }
+}
