@@ -55,21 +55,51 @@ export interface StudentGrade {
   id: string;
   studentId: string;
   classId: string;
-  tugas1: number | null;
-  tugas2: number | null;
-  tugas3: number | null;
-  uts: number | null;
-  uas: number | null;
-  praktik: number | null;
+
+  // 10 Kolom Penilaian: 8 Asesmen Formatif + 2 Asesmen Sumatif
+  formatif1?: number | null;
+  formatif2?: number | null;
+  formatif3?: number | null;
+  formatif4?: number | null;
+  formatif5?: number | null;
+  formatif6?: number | null;
+  formatif7?: number | null;
+  formatif8?: number | null;
+  sumatifTengah?: number | null; // Asesmen Sumatif Tengah Semester (STS / Pengganti UTS)
+  sumatifAkhir?: number | null;  // Asesmen Sumatif Akhir Semester (SAS / Pengganti UAS)
+
+  // Backward compatibility aliases
+  tugas1?: number | null;
+  tugas2?: number | null;
+  tugas3?: number | null;
+  uts?: number | null;
+  uas?: number | null;
+  praktik?: number | null;
+
   catatan: string;
 }
 
 export interface CalculatedGrade {
   studentId: string;
-  rataTugas: number;
+  rataFormatif: number;
+  rataTugas?: number; // compat alias
   nilaiAkhir: number;
   predikat: 'A' | 'B' | 'C' | 'D';
   status: 'Tuntas' | 'Belum Tuntas';
+  sumatifTengah?: number | null;
+  sumatifAkhir?: number | null;
+}
+
+export interface TeacherWorkspaceData {
+  teacherUid: string;
+  email: string;
+  teacher: TeacherProfile;
+  classes: ClassRoom[];
+  activeClassId: string;
+  students: Student[];
+  sessions: AttendanceSession[];
+  grades: StudentGrade[];
+  updatedAt: string;
 }
 
 export type ActiveTab = 'absensi' | 'nilai' | 'statistik' | 'impor' | 'laporan-ortu' | 'workspace' | 'peta';

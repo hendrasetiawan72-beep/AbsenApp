@@ -12,6 +12,7 @@ import {
   ShieldAlert,
 } from 'lucide-react';
 import { Student, AttendanceSession, StudentGrade } from '../types';
+import { calculateStudentGrade } from '../utils/gradeCalculations';
 
 interface StatisticsResumeViewProps {
   students: Student[];
@@ -110,35 +111,15 @@ export const StatisticsResumeView: React.FC<StatisticsResumeViewProps> = ({
   // 2. Grades Statistics Calculation
   const studentGradeCalculations = students.map((s) => {
     const g = grades.find((item) => item.studentId === s.id);
-    const t1 = g?.tugas1 ?? null;
-    const t2 = g?.tugas2 ?? null;
-    const t3 = g?.tugas3 ?? null;
-    const validTugas = [t1, t2, t3].filter((v): v is number => v !== null && !isNaN(v));
-    const rataTugas =
-      validTugas.length > 0
-        ? Math.round(validTugas.reduce((a, b) => a + b, 0) / validTugas.length)
-        : 0;
-
-    const uts = g?.uts ?? 0;
-    const uas = g?.uas ?? 0;
-    const praktik = g?.praktik ?? 0;
-
-    const nilaiAkhir = Math.round(rataTugas * 0.3 + uts * 0.25 + uas * 0.25 + praktik * 0.2);
-
-    let predikat: 'A' | 'B' | 'C' | 'D' = 'D';
-    if (nilaiAkhir >= 88) predikat = 'A';
-    else if (nilaiAkhir >= 76) predikat = 'B';
-    else if (nilaiAkhir >= 60) predikat = 'C';
-
-    const isTuntas = nilaiAkhir >= kkm;
+    const detail = calculateStudentGrade(g, kkm);
 
     return {
       student: s,
       grade: g,
-      rataTugas,
-      nilaiAkhir,
-      predikat,
-      isTuntas,
+      rataFormatif: detail.rataFormatif,
+      nilaiAkhir: detail.nilaiAkhir,
+      predikat: detail.predikat,
+      isTuntas: detail.isTuntas,
     };
   });
 
