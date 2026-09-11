@@ -341,6 +341,16 @@ export default function App() {
     setAllGrades((prev) => prev.filter((g) => g.studentId !== studentId));
   };
 
+  const handleUpdateStudentField = (
+    studentId: string,
+    field: keyof Student,
+    value: any
+  ) => {
+    setAllStudents((prev) =>
+      prev.map((s) => (s.id === studentId ? { ...s, [field]: value } : s))
+    );
+  };
+
   const handleImportStudents = (newStudents: Student[], mode: 'replace' | 'append') => {
     setAllStudents((prev) => {
       if (mode === 'replace') {
@@ -471,6 +481,7 @@ export default function App() {
               setIsStudentModalOpen(true);
             }}
             onDeleteStudent={handleDeleteStudent}
+            onUpdateStudentField={handleUpdateStudentField}
             onOpenAddStudent={() => {
               setEditingStudent(null);
               setIsStudentModalOpen(true);
@@ -490,6 +501,11 @@ export default function App() {
             className={currentClass.namaKelas}
             mataPelajaran={currentClass.mataPelajaran}
             onUpdateGrade={handleUpdateGrade}
+            onUpdateStudentField={handleUpdateStudentField}
+            onEditStudent={(s) => {
+              setEditingStudent(s);
+              setIsStudentModalOpen(true);
+            }}
           />
         )}
 

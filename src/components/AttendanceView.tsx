@@ -8,6 +8,7 @@ import {
   RotateCcw,
   FileSpreadsheet,
   Edit2,
+  Edit3,
   Trash2,
   Table,
   UserCheck,
@@ -35,6 +36,7 @@ interface AttendanceViewProps {
   onAddSession: (tanggal: string, pertemuanKe: number, topikMateri: string) => void;
   onDeleteSession: (sessionId: string) => void;
   onEditStudent: (student: Student) => void;
+  onUpdateStudentField?: (studentId: string, field: keyof Student, value: any) => void;
   onDeleteStudent: (studentId: string) => void;
   onOpenAddStudent: () => void;
   onOpenSpreadsheetImport: () => void;
@@ -57,6 +59,7 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
   onAddSession,
   onDeleteSession,
   onEditStudent,
+  onUpdateStudentField,
   onDeleteStudent,
   onOpenAddStudent,
   onOpenSpreadsheetImport,
@@ -85,6 +88,7 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
 
   // Matrix View vs Single Session View
   const [viewMode, setViewMode] = useState<'single' | 'matrix'>('single');
+  const [isQuickEditMode, setIsQuickEditMode] = useState(false);
 
   // Active current session object
   const activeSession =
@@ -501,6 +505,20 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
 
               <button
                 type="button"
+                onClick={() => setIsQuickEditMode(!isQuickEditMode)}
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-xl transition-all cursor-pointer border ${
+                  isQuickEditMode
+                    ? 'bg-amber-500 text-white border-amber-600 shadow-xs'
+                    : 'bg-white hover:bg-slate-50 text-slate-700 border-slate-300'
+                }`}
+                title="Aktifkan mode edit cepat untuk mengubah NISN, Nama, dan Gender langsung di tabel"
+              >
+                <Edit3 className="w-3.5 h-3.5" />
+                <span>{isQuickEditMode ? 'Tutup Edit Cepat' : 'Edit Cepat Siswa'}</span>
+              </button>
+
+              <button
+                type="button"
                 onClick={onOpenAddStudent}
                 className="inline-flex items-center gap-1 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition-colors cursor-pointer"
               >
@@ -586,14 +604,48 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
 
                           {/* NISN */}
                           <td className="py-3 px-3 font-mono text-[11px] text-slate-600">
-                            {student.nisn}
+                            {isQuickEditMode ? (
+                              <input
+                                type="text"
+                                value={student.nisn}
+                                onChange={(e) =>
+                                  onUpdateStudentField?.(student.id, 'nisn', e.target.value)
+                                }
+                                placeholder="NISN..."
+                                className="w-full font-mono text-[11px] px-2 py-1 border border-amber-300 rounded bg-amber-50/50 focus:ring-1 focus:ring-amber-500 focus:outline-none"
+                              />
+                            ) : (
+                              <span
+                                onDoubleClick={() => onEditStudent(student)}
+                                title="Klik dua kali atau tombol Edit untuk mengubah NISN"
+                                className="cursor-pointer hover:text-indigo-600"
+                              >
+                                {student.nisn}
+                              </span>
+                            )}
                           </td>
 
                           {/* Nama Lengkap */}
                           <td className="py-3 px-4">
-                            <div className="font-bold text-slate-900 leading-tight">
-                              {student.nama}
-                            </div>
+                            {isQuickEditMode ? (
+                              <input
+                                type="text"
+                                value={student.nama}
+                                onChange={(e) =>
+                                  onUpdateStudentField?.(student.id, 'nama', e.target.value)
+                                }
+                                placeholder="Nama Siswa..."
+                                className="w-full font-bold text-xs px-2 py-1 border border-amber-300 rounded bg-amber-50/50 text-slate-900 focus:ring-1 focus:ring-amber-500 focus:outline-none"
+                              />
+                            ) : (
+                              <div
+                                onDoubleClick={() => onEditStudent(student)}
+                                className="font-bold text-slate-900 leading-tight cursor-pointer hover:text-indigo-600"
+                                title="Klik dua kali atau tombol Edit untuk mengubah nama"
+                              >
+                                {student.nama}
+                              </div>
+                            )}
                             {student.catatanUmum && (
                               <div className="text-[10px] text-slate-400 mt-0.5 truncate max-w-[240px]">
                                 Info: {student.catatanUmum}
@@ -601,40 +653,45 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
                             )}
                           </td>
 
-                          {/* Gender and Logo / Badge */}
+                          {/* Gender - Interactive Click to Toggle */}
                           <td className="py-3 px-3 text-center">
-                            {student.gender === 'L' ? (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const nextGender = student.gender === 'L' ? 'P' : 'L';
+                                onUpdateStudentField?.(student.id, 'gender', nextGender);
+                              }}
+                              title="Klik untuk beralih Jenis Kelamin (Laki-laki ♂ / Perempuan ♀)"
+                              className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold border transition-all cursor-pointer hover:scale-105 ${
+                                student.gender === 'L'
+                                  ? 'bg-blue-50 hover:bg-blue-100 text-blue-700 border-blue-200/90 shadow-2xs'
+                                  : 'bg-pink-50 hover:bg-pink-100 text-pink-700 border-pink-200/90 shadow-2xs'
+                              }`}
+                            >
                               <span
-                                title="Laki-laki"
-                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-blue-50 text-blue-700 border border-blue-200/80 shadow-2xs"
+                                className={`w-4 h-4 rounded-full text-white flex items-center justify-center text-[10px] font-extrabold ${
+                                  student.gender === 'L' ? 'bg-blue-600' : 'bg-pink-600'
+                                }`}
                               >
-                                <span className="w-4 h-4 rounded-full bg-blue-600 text-white flex items-center justify-center text-[10px] font-extrabold">
-                                  ♂
-                                </span>
-                                <span>L</span>
+                                {student.gender === 'L' ? '♂' : '♀'}
                               </span>
-                            ) : (
-                              <span
-                                title="Perempuan"
-                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-pink-50 text-pink-700 border border-pink-200/80 shadow-2xs"
-                              >
-                                <span className="w-4 h-4 rounded-full bg-pink-600 text-white flex items-center justify-center text-[10px] font-extrabold">
-                                  ♀
-                                </span>
-                                <span>P</span>
-                              </span>
-                            )}
+                              <span>{student.gender === 'L' ? 'L' : 'P'}</span>
+                            </button>
                           </td>
 
-                          {/* Attendance Status Selector Buttons (Pilih salah satu) */}
+                          {/* Attendance Status Selector Buttons (Pilih salah satu / Klik lagi untuk reset) */}
                           <td className="py-3 px-4 text-center">
                             <div className="inline-flex items-center p-1 rounded-xl bg-slate-100 border border-slate-200 gap-1 shadow-2xs">
                               {/* Hadir (H) */}
                               <button
                                 type="button"
-                                title="Hadir"
+                                title={currentStatus === 'H' ? 'Sudah Hadir (Klik untuk kosongkan)' : 'Tandai Hadir'}
                                 onClick={() =>
-                                  onUpdateStatus(currentSessionId, student.id, 'H')
+                                  onUpdateStatus(
+                                    currentSessionId,
+                                    student.id,
+                                    currentStatus === 'H' ? ('' as AttendanceStatus) : 'H'
+                                  )
                                 }
                                 className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                                   currentStatus === 'H'
@@ -648,9 +705,13 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
                               {/* Sakit (S) */}
                               <button
                                 type="button"
-                                title="Sakit"
+                                title={currentStatus === 'S' ? 'Sudah Sakit (Klik untuk kosongkan)' : 'Tandai Sakit'}
                                 onClick={() =>
-                                  onUpdateStatus(currentSessionId, student.id, 'S')
+                                  onUpdateStatus(
+                                    currentSessionId,
+                                    student.id,
+                                    currentStatus === 'S' ? ('' as AttendanceStatus) : 'S'
+                                  )
                                 }
                                 className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                                   currentStatus === 'S'
@@ -664,9 +725,13 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
                               {/* Izin (I) */}
                               <button
                                 type="button"
-                                title="Izin"
+                                title={currentStatus === 'I' ? 'Sudah Izin (Klik untuk kosongkan)' : 'Tandai Izin'}
                                 onClick={() =>
-                                  onUpdateStatus(currentSessionId, student.id, 'I')
+                                  onUpdateStatus(
+                                    currentSessionId,
+                                    student.id,
+                                    currentStatus === 'I' ? ('' as AttendanceStatus) : 'I'
+                                  )
                                 }
                                 className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                                   currentStatus === 'I'
@@ -680,9 +745,13 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
                               {/* Alfa (A) */}
                               <button
                                 type="button"
-                                title="Alfa / Tanpa Keterangan"
+                                title={currentStatus === 'A' ? 'Sudah Alfa (Klik untuk kosongkan)' : 'Tandai Alfa'}
                                 onClick={() =>
-                                  onUpdateStatus(currentSessionId, student.id, 'A')
+                                  onUpdateStatus(
+                                    currentSessionId,
+                                    student.id,
+                                    currentStatus === 'A' ? ('' as AttendanceStatus) : 'A'
+                                  )
                                 }
                                 className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                                   currentStatus === 'A'
@@ -789,6 +858,9 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
               <p className="text-xs text-slate-500">
                 Tampilan format spreadsheet penuh memperlihatkan kehadiran tiap pertemuan serta persentase total
               </p>
+              <p className="text-[11px] text-indigo-600 font-semibold mt-1">
+                💡 Edit Manual Matriks: Klik langsung pada kotak status absensi siswa (P1, P2, dst.) untuk mengubah kehadiran (H → S → I → A → Reset). Klik L/P untuk mengubah jenis kelamin.
+              </p>
             </div>
             <button
               type="button"
@@ -851,35 +923,63 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
                         {student.nama}
                       </td>
                       <td className="py-2 px-2 text-center border-r border-slate-200">
-                        {student.gender === 'L' ? (
-                          <span className="text-blue-700 font-bold">L</span>
-                        ) : (
-                          <span className="text-pink-700 font-bold">P</span>
-                        )}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const nextGender = student.gender === 'L' ? 'P' : 'L';
+                            onUpdateStudentField?.(student.id, 'gender', nextGender);
+                          }}
+                          title="Klik untuk beralih Jenis Kelamin (L/P)"
+                          className={`w-6 h-6 rounded-md font-extrabold text-xs transition-colors cursor-pointer inline-flex items-center justify-center ${
+                            student.gender === 'L'
+                              ? 'text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200'
+                              : 'text-pink-700 bg-pink-50 hover:bg-pink-100 border border-pink-200'
+                          }`}
+                        >
+                          {student.gender}
+                        </button>
                       </td>
 
                       {/* Sessions cells */}
                       {sessions.map((ses) => {
                         const rec = ses.records[student.id];
-                        const st = rec?.status || '-';
+                        const st = rec?.status || '';
                         if (st === 'H') h++;
                         else if (st === 'S') s++;
                         else if (st === 'I') i++;
                         else if (st === 'A') a++;
 
-                        let cellBg = 'text-slate-400';
-                        if (st === 'H') cellBg = 'bg-emerald-50 text-emerald-800 font-bold';
-                        else if (st === 'S') cellBg = 'bg-blue-50 text-blue-800 font-bold';
-                        else if (st === 'I') cellBg = 'bg-amber-50 text-amber-800 font-bold';
-                        else if (st === 'A') cellBg = 'bg-rose-100 text-rose-800 font-bold';
-
                         return (
                           <td
                             key={ses.id}
-                            className={`py-2 px-1 text-center border-r border-slate-200 ${cellBg}`}
-                            title={rec?.catatan || undefined}
+                            className="py-1.5 px-1 text-center border-r border-slate-200"
+                            title={`${student.nama} - P${ses.pertemuanKe}: Klik untuk ubah (H->S->I->A->Kosongkan)`}
                           >
-                            {st}
+                            <button
+                              type="button"
+                              onClick={() => {
+                                let nextSt: AttendanceStatus = 'H';
+                                if (st === 'H') nextSt = 'S';
+                                else if (st === 'S') nextSt = 'I';
+                                else if (st === 'I') nextSt = 'A';
+                                else if (st === 'A') nextSt = '' as AttendanceStatus;
+                                else nextSt = 'H';
+                                onUpdateStatus(ses.id, student.id, nextSt);
+                              }}
+                              className={`w-6 h-6 rounded text-xs font-extrabold transition-all cursor-pointer inline-flex items-center justify-center hover:scale-110 shadow-2xs ${
+                                st === 'H'
+                                  ? 'bg-emerald-600 text-white'
+                                  : st === 'S'
+                                  ? 'bg-blue-600 text-white'
+                                  : st === 'I'
+                                  ? 'bg-amber-500 text-white'
+                                  : st === 'A'
+                                  ? 'bg-rose-600 text-white'
+                                  : 'text-slate-300 hover:text-slate-600 hover:bg-slate-200 bg-slate-50'
+                              }`}
+                            >
+                              {st || '·'}
+                            </button>
                           </td>
                         );
                       })}

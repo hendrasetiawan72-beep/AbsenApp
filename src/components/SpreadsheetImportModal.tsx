@@ -8,6 +8,9 @@ import {
   AlertCircle,
   X,
   FileDown,
+  Plus,
+  Trash2,
+  Edit3,
 } from 'lucide-react';
 import { Student, Gender } from '../types';
 import {
@@ -93,6 +96,30 @@ export const SpreadsheetImportModal: React.FC<SpreadsheetImportModalProps> = ({
 7	0071234027	Gilang Ramadhan	L	Ketua Pramuka
 8	0071234028	Hesti Purnamasari	P	Sekretaris 2`;
     handleTextChange(sample);
+  };
+
+  const handleUpdateRow = (index: number, field: keyof ParsedStudentRow, value: string | number | Gender) => {
+    setParsedRows((prev) =>
+      prev.map((row, idx) => (idx === index ? { ...row, [field]: value } : row))
+    );
+  };
+
+  const handleDeleteRow = (index: number) => {
+    setParsedRows((prev) => prev.filter((_, idx) => idx !== index));
+  };
+
+  const handleAddBlankRow = () => {
+    const nextIndex = parsedRows.length + 1;
+    setParsedRows((prev) => [
+      ...prev,
+      {
+        no: nextIndex,
+        nisn: '00' + (71234000 + nextIndex),
+        nama: '',
+        gender: 'L',
+        catatanUmum: '',
+      },
+    ]);
   };
 
   const handleApplyImport = () => {
@@ -266,23 +293,43 @@ export const SpreadsheetImportModal: React.FC<SpreadsheetImportModalProps> = ({
           {/* Preview Table of Parsed Students */}
           <div>
             <div className="flex items-center justify-between mb-2">
-              <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
-                <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                Hasil Deteksi Spreadsheet ({parsedRows.length} Siswa Terbaca)
-              </h4>
-              {parsedRows.length > 0 && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setPastedText('');
-                    setParsedRows([]);
-                    setFileName('');
-                  }}
-                  className="text-xs text-rose-600 hover:underline cursor-pointer"
-                >
-                  Bersihkan
-                </button>
-              )}
+              <div>
+                <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                  Hasil Deteksi Spreadsheet ({parsedRows.length} Siswa Terbaca)
+                </h4>
+                {parsedRows.length > 0 && (
+                  <p className="text-[11px] text-indigo-600 font-medium mt-0.5">
+                    💡 Fitur Edit Manual: Anda dapat mengedit langsung NISN, Nama, dan Gender (klik L/P) pada tabel sebelum disimpan.
+                  </p>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                {parsedRows.length > 0 && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={handleAddBlankRow}
+                      className="inline-flex items-center gap-1 text-xs font-semibold px-2 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg transition-colors cursor-pointer"
+                      title="Tambah baris kosong"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>Tambah Baris</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPastedText('');
+                        setParsedRows([]);
+                        setFileName('');
+                      }}
+                      className="text-xs text-rose-600 hover:underline cursor-pointer"
+                    >
+                      Bersihkan
+                    </button>
+                  </>
+                )}
+              </div>
             </div>
 
             {parsedRows.length === 0 ? (
@@ -290,36 +337,80 @@ export const SpreadsheetImportModal: React.FC<SpreadsheetImportModalProps> = ({
                 Belum ada data terbaca. Silakan paste teks tabel atau unggah berkas spreadsheet.
               </div>
             ) : (
-              <div className="border border-slate-200 rounded-xl overflow-hidden shadow-2xs max-h-56 overflow-y-auto">
-                <table className="w-full text-xs text-left border-collapse">
-                  <thead className="bg-slate-100/90 text-slate-700 font-semibold sticky top-0 border-b border-slate-200">
+              <div className="border border-slate-200 rounded-xl overflow-hidden shadow-2xs max-h-64 overflow-y-auto">
+                <table className="w-full text-xs text-left border-collapse min-w-[620px]">
+                  <thead className="bg-slate-100/90 text-slate-700 font-semibold sticky top-0 border-b border-slate-200 z-10">
                     <tr>
-                      <th className="py-2 px-3 w-12 text-center">No</th>
-                      <th className="py-2 px-3 w-28">NISN</th>
-                      <th className="py-2 px-3">Nama Lengkap</th>
-                      <th className="py-2 px-3 w-28 text-center">Gender</th>
-                      <th className="py-2 px-3">Catatan</th>
+                      <th className="py-2 px-2.5 w-12 text-center">No</th>
+                      <th className="py-2 px-2.5 w-28">NISN</th>
+                      <th className="py-2 px-2.5">Nama Lengkap Siswa</th>
+                      <th className="py-2 px-2.5 w-28 text-center">Gender</th>
+                      <th className="py-2 px-2.5 min-w-[140px]">Catatan</th>
+                      <th className="py-2 px-2 w-10 text-center">Aksi</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 text-slate-700">
                     {parsedRows.map((row, idx) => (
-                      <tr key={idx} className="hover:bg-slate-50/80 transition-colors">
-                        <td className="py-1.5 px-3 text-center font-medium text-slate-500">{row.no}</td>
-                        <td className="py-1.5 px-3 font-mono text-[11px] text-slate-600">{row.nisn}</td>
-                        <td className="py-1.5 px-3 font-semibold text-slate-900">{row.nama}</td>
-                        <td className="py-1.5 px-3 text-center">
-                          {row.gender === 'L' ? (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-blue-100 text-blue-800">
-                              <span className="font-bold">♂</span> L
-                            </span>
-                          ) : (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-pink-100 text-pink-800">
-                              <span className="font-bold">♀</span> P
-                            </span>
-                          )}
+                      <tr key={idx} className="hover:bg-indigo-50/20 transition-colors">
+                        <td className="py-1 px-2 text-center">
+                          <input
+                            type="number"
+                            min="1"
+                            value={row.no}
+                            onChange={(e) => handleUpdateRow(idx, 'no', Number(e.target.value))}
+                            className="w-10 text-center text-xs py-0.5 border border-slate-200 rounded focus:ring-1 focus:ring-indigo-500 focus:outline-none"
+                          />
                         </td>
-                        <td className="py-1.5 px-3 text-slate-500 truncate max-w-[180px]">
-                          {row.catatanUmum || '-'}
+                        <td className="py-1 px-2">
+                          <input
+                            type="text"
+                            value={row.nisn}
+                            onChange={(e) => handleUpdateRow(idx, 'nisn', e.target.value)}
+                            className="w-full font-mono text-[11px] px-2 py-1 border border-slate-200 rounded bg-white focus:ring-1 focus:ring-indigo-500 focus:outline-none"
+                            placeholder="NISN..."
+                          />
+                        </td>
+                        <td className="py-1 px-2">
+                          <input
+                            type="text"
+                            value={row.nama}
+                            onChange={(e) => handleUpdateRow(idx, 'nama', e.target.value)}
+                            className="w-full font-semibold text-xs px-2 py-1 border border-slate-200 rounded bg-white text-slate-900 focus:ring-1 focus:ring-indigo-500 focus:outline-none"
+                            placeholder="Nama Siswa..."
+                          />
+                        </td>
+                        <td className="py-1 px-2 text-center">
+                          <button
+                            type="button"
+                            onClick={() => handleUpdateRow(idx, 'gender', row.gender === 'L' ? 'P' : 'L')}
+                            title="Klik untuk beralih Jenis Kelamin L / P"
+                            className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer border ${
+                              row.gender === 'L'
+                                ? 'bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100'
+                                : 'bg-pink-50 text-pink-700 border-pink-200 hover:bg-pink-100'
+                            }`}
+                          >
+                            <span className="font-extrabold">{row.gender === 'L' ? '♂ Laki-laki' : '♀ Perempuan'}</span>
+                          </button>
+                        </td>
+                        <td className="py-1 px-2">
+                          <input
+                            type="text"
+                            value={row.catatanUmum}
+                            onChange={(e) => handleUpdateRow(idx, 'catatanUmum', e.target.value)}
+                            className="w-full text-xs px-2 py-1 border border-slate-200 rounded bg-white text-slate-700 focus:ring-1 focus:ring-indigo-500 focus:outline-none"
+                            placeholder="Catatan khusus..."
+                          />
+                        </td>
+                        <td className="py-1 px-2 text-center">
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteRow(idx)}
+                            className="p-1 text-slate-400 hover:text-rose-600 rounded transition-colors cursor-pointer"
+                            title="Hapus baris ini"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
                         </td>
                       </tr>
                     ))}
