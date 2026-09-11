@@ -15,17 +15,17 @@ const STORAGE_KEYS = {
   GRADES: 'absensi_grades',
 };
 
-// Initial Sample Data
+// Initial Empty Teacher Profile (Clean state for real authentication)
 const DEFAULT_TEACHER: TeacherProfile = {
   id: 'teacher-1',
-  namaGuru: 'Hendra Al Kindi, S.Pd., M.Kom.',
-  nip: '19870914 201101 1 009',
+  namaGuru: '',
+  nip: '',
   namaSekolah: 'SMK Muhammadiyah Bawang',
-  mataPelajaranUtama: 'Pemrograman Web & Perangkat Bergerak',
+  mataPelajaranUtama: '',
   tahunAjaran: '2025/2026',
   semester: 'Ganjil',
-  isLoggedIn: true,
-  email: 'guru.hendra@smkmuhbawang.sch.id',
+  isLoggedIn: false,
+  email: '',
   avatarUrl: '',
 };
 
@@ -186,7 +186,7 @@ export const Storage = {
         parsed.namaSekolah = 'SMK Muhammadiyah Bawang';
       }
       if (!parsed.email) {
-        parsed.email = 'guru.hendra@smkmuhbawang.sch.id';
+        parsed.email = '';
       }
       return parsed;
     } catch {
