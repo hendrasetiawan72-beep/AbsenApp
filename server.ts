@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import express from 'express';
 import path from 'path';
 import { createServer as createViteServer } from 'vite';
@@ -8,7 +9,7 @@ import { requireAuth, AuthRequest } from './src/middleware/auth.ts';
 
 async function startServer() {
   const app = express();
-  const PORT = process.env.PORT || 3000;
+  const PORT = 3000;
 
   app.use(express.json());
 
@@ -74,7 +75,7 @@ async function startServer() {
       await db.insert(cloudActivityLogs).values({
         userUid,
         action: 'SYNC_CLASS',
-        details: `Sinkronisasi kelas \( {namaKelas} ( \){classId})`,
+        details: `Sinkronisasi kelas ${namaKelas} (${classId})`,
       });
 
       return res.json({ success: true, message: 'Kelas berhasil disinkronkan ke Cloud SQL' });
