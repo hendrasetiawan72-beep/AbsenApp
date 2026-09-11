@@ -14,6 +14,7 @@ export interface TeacherProfile {
   email?: string;
   avatarUrl?: string;
   googleId?: string;
+  activeClassId?: string;
 }
 
 export interface ClassRoom {
@@ -65,6 +66,8 @@ export interface StudentGrade {
   formatif6?: number | null;
   formatif7?: number | null;
   formatif8?: number | null;
+  formatif9?: number | null;
+  formatif10?: number | null;
   sumatifTengah?: number | null; // Asesmen Sumatif Tengah Semester (STS / Pengganti UTS)
   sumatifAkhir?: number | null;  // Asesmen Sumatif Akhir Semester (SAS / Pengganti UAS)
 

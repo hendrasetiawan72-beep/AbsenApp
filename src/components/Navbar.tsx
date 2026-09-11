@@ -24,6 +24,7 @@ interface NavbarProps {
   classes: ClassRoom[];
   activeClassId: string;
   activeTab: ActiveTab;
+  isCloudSaving?: boolean;
   onSelectClass: (classId: string) => void;
   onSelectTab: (tab: ActiveTab) => void;
   onOpenClassModal: () => void;
@@ -38,6 +39,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   classes,
   activeClassId,
   activeTab,
+  isCloudSaving = false,
   onSelectClass,
   onSelectTab,
   onOpenClassModal,
@@ -115,37 +117,69 @@ export const Navbar: React.FC<NavbarProps> = ({
           </div>
 
           {/* Right Action: Teacher Profile & Fast Actions */}
-          <div className="flex items-center gap-1.5 shrink-0">
+          <div className="flex items-center gap-2 shrink-0">
+            {/* Cloud Sync Status Indicator */}
+            <div className="hidden md:flex items-center gap-1.5 px-2 py-1 rounded-lg bg-slate-50 border border-slate-200/80 text-[11px] font-medium text-slate-600">
+              {isCloudSaving ? (
+                <>
+                  <RefreshCw className="w-3 h-3 text-amber-500 animate-spin" />
+                  <span className="text-amber-600 font-semibold">Menyimpan...</span>
+                </>
+              ) : (
+                <>
+                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                  <span className="text-slate-600 font-medium">Cloud Aktif</span>
+                </>
+              )}
+            </div>
+
+            {/* Profile Button with Name, Email, and Avatar */}
             <button
               id="btn-teacher-profile"
               onClick={onOpenLoginModal}
-              className="flex items-center gap-2 px-2.5 py-1.5 rounded-xl border border-slate-200/80 hover:border-slate-300 bg-white hover:bg-slate-50/80 transition-all text-left cursor-pointer shadow-2xs"
+              className="flex items-center gap-2.5 px-2.5 py-1.5 rounded-xl border border-slate-200/80 hover:border-slate-300 bg-white hover:bg-slate-50/80 transition-all text-left cursor-pointer shadow-2xs"
               title="Profil Guru & Pengaturan Akun"
             >
-              <div className="w-6 h-6 rounded-full bg-gradient-to-tr from-indigo-600 to-blue-600 text-white flex items-center justify-center font-bold text-xs shadow-2xs shrink-0">
-                {teacher.namaGuru?.charAt(0) || 'G'}
-              </div>
-              <div className="hidden lg:block text-xs">
-                <div className="font-bold text-slate-800 truncate max-w-[120px] leading-tight">
-                  {teacher.namaGuru}
+              {teacher.avatarUrl ? (
+                <img
+                  src={teacher.avatarUrl}
+                  alt={teacher.namaGuru || 'Foto Profil'}
+                  referrerPolicy="no-referrer"
+                  className="w-7 h-7 rounded-full object-cover shadow-2xs shrink-0 ring-1 ring-slate-200"
+                />
+              ) : (
+                <div className="w-7 h-7 rounded-full bg-gradient-to-tr from-indigo-600 to-blue-600 text-white flex items-center justify-center font-bold text-xs shadow-2xs shrink-0">
+                  {teacher.namaGuru?.charAt(0) || teacher.email?.charAt(0).toUpperCase() || 'G'}
                 </div>
+              )}
+              <div className="hidden sm:block text-left">
+                <div className="font-bold text-slate-800 text-xs truncate max-w-[130px] leading-tight">
+                  {teacher.namaGuru || 'Guru SMK'}
+                </div>
+                {teacher.email && (
+                  <div className="text-[10px] text-slate-500 truncate max-w-[130px] leading-none mt-0.5">
+                    {teacher.email}
+                  </div>
+                )}
               </div>
             </button>
 
+            {/* Clear, Prominent Logout Button */}
             <button
               id="btn-logout"
               onClick={onLogout}
               title="Keluar / Ganti Akun Google"
-              className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-colors cursor-pointer"
+              className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold text-rose-700 bg-rose-50 hover:bg-rose-100/90 border border-rose-200/70 rounded-xl transition-all cursor-pointer shadow-2xs"
             >
-              <LogOut className="w-4 h-4" />
+              <LogOut className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Keluar</span>
             </button>
 
             <button
               id="btn-reset-demo"
               onClick={onResetData}
               title="Reset ke data contoh"
-              className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer hidden sm:block"
+              className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer hidden sm:block"
             >
               <RefreshCw className="w-3.5 h-3.5" />
             </button>

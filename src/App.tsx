@@ -12,6 +12,11 @@ import {
   ArrowRight,
   BookOpen,
 } from 'lucide-react';
+import { onAuthStateChanged, signOut } from 'firebase/auth';
+import { auth } from './lib/firebase';
+import { FirestoreService } from './services/firestoreService';
+import { ToastContainer, ToastItem } from './components/Toast';
+import { CloudLoadingScreen } from './components/CloudLoadingScreen';
 import {
   ActiveTab,
   ClassRoom,
@@ -38,7 +43,7 @@ import { GoogleWorkspaceView } from './components/GoogleWorkspaceView';
 import { SchoolMapView } from './components/SchoolMapView';
 
 export default function App() {
-  // Load State from persistent storage
+  // Load State from persistent storage as fast initial fallback
   const [teacher, setTeacher] = useState<TeacherProfile>(() => Storage.getTeacher());
   const [classes, setClasses] = useState<ClassRoom[]>(() => Storage.getClasses());
   const [activeClassId, setActiveClassId] = useState<string>(() => Storage.getActiveClassId());
@@ -47,6 +52,24 @@ export default function App() {
     Storage.getAllSessions()
   );
   const [allGrades, setAllGrades] = useState<StudentGrade[]>(() => Storage.getAllGrades());
+
+  // Cloud State & UX Feedback
+  const [isCloudLoading, setIsCloudLoading] = useState<boolean>(true);
+  const [cloudStatusMsg, setCloudStatusMsg] = useState<string>('Menghubungkan ke Cloud Firestore...');
+  const [isCloudSaving, setIsCloudSaving] = useState<boolean>(false);
+  const [toasts, setToasts] = useState<ToastItem[]>([]);
+
+  const showToast = (message: string, type: 'success' | 'error' | 'info' = 'success') => {
+    const id = 'toast-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6);
+    setToasts((prev) => [...prev, { id, message, type }]);
+    setTimeout(() => {
+      setToasts((prev) => prev.filter((t) => t.id !== id));
+    }, 4000);
+  };
+
+  const dismissToast = (id: string) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
+  };
 
   // Google Authentication Gate (as explicitly requested: "Awali dengan form login dengan akun google bagi user")
   const [isGoogleLoggedIn, setIsGoogleLoggedIn] = useState<boolean>(() => {
@@ -67,7 +90,60 @@ export default function App() {
   const [isDeleteClassModalOpen, setIsDeleteClassModalOpen] = useState(false);
   const [classToDeleteId, setClassToDeleteId] = useState<string | null>(null);
 
-  // Sync to Storage whenever state updates
+  // Firebase Auth State Listener & Cloud Firestore Fetch
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      if (firebaseUser) {
+        setIsGoogleLoggedIn(true);
+        sessionStorage.setItem('sim_google_auth_active', 'true');
+        setIsCloudLoading(true);
+        setCloudStatusMsg(`Mengambil data cloud untuk ${firebaseUser.email || 'pengguna'}...`);
+
+        try {
+          const userData = await FirestoreService.loadUserData(firebaseUser.uid);
+
+          if (userData.isNewUser) {
+            setCloudStatusMsg('Menyiapkan ruang kelas & data awal Anda di Cloud Firestore...');
+            const seeded = await FirestoreService.seedInitialUserData(
+              firebaseUser.uid,
+              firebaseUser
+            );
+            setTeacher(seeded.teacher);
+            setClasses(seeded.classes);
+            setActiveClassId(seeded.activeClassId);
+            setAllStudents(seeded.students);
+            setAllSessions(seeded.sessions);
+            setAllGrades(seeded.grades);
+            showToast('Akun Google terhubung! Data baru telah disiapkan di Cloud Firestore.', 'success');
+          } else {
+            setTeacher(userData.teacher);
+            setClasses(userData.classes);
+            setActiveClassId(userData.activeClassId);
+            setAllStudents(userData.students);
+            setAllSessions(userData.sessions);
+            setAllGrades(userData.grades);
+            showToast(
+              `Selamat datang, ${userData.teacher.namaGuru || firebaseUser.displayName || 'Guru'}. Data otomatis ditarik dari Cloud Firestore.`,
+              'success'
+            );
+          }
+        } catch (error: any) {
+          console.error('[App] Error loading from Cloud Firestore:', error);
+          showToast('Gagal memuat data dari Cloud Firestore. Menggunakan data lokal.', 'error');
+        } finally {
+          setIsCloudLoading(false);
+        }
+      } else {
+        setIsGoogleLoggedIn(false);
+        sessionStorage.removeItem('sim_google_auth_active');
+        setIsCloudLoading(false);
+      }
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  // Sync to Storage whenever state updates as secondary offline cache
   useEffect(() => {
     Storage.setTeacher(teacher);
   }, [teacher]);
@@ -115,19 +191,32 @@ export default function App() {
 
   const calculatedGrades: CalculatedGrade[] = classStudents.map((std) => {
     const g = classGrades.find((grade) => grade.studentId === std.id);
-    const validTugas = [g?.tugas1, g?.tugas2, g?.tugas3].filter(
-      (v): v is number => typeof v === 'number' && !isNaN(v)
-    );
-    const rataTugas =
+    const validTugas = [
+      g?.formatif1,
+      g?.formatif2,
+      g?.formatif3,
+      g?.formatif4,
+      g?.formatif5,
+      g?.formatif6,
+      g?.formatif7,
+      g?.formatif8,
+      g?.formatif9,
+      g?.formatif10,
+    ].filter((v): v is number => typeof v === 'number' && !isNaN(v));
+
+    const rataFormatif =
       validTugas.length > 0
         ? Math.round(validTugas.reduce((a, b) => a + b, 0) / validTugas.length)
         : 0;
-    const uts = g?.uts ?? 0;
-    const uas = g?.uas ?? 0;
+
+    const sumatifTengah = g?.sumatifTengah ?? g?.uts ?? 0;
+    const sumatifAkhir = g?.sumatifAkhir ?? g?.uas ?? 0;
     const praktik = g?.praktik ?? 0;
+
     const nilaiAkhir = Math.round(
-      rataTugas * 0.3 + uts * 0.25 + uas * 0.25 + praktik * 0.2
+      rataFormatif * 0.4 + sumatifTengah * 0.25 + sumatifAkhir * 0.25 + praktik * 0.1
     );
+
     let predikat: 'A' | 'B' | 'C' | 'D' = 'D';
     if (nilaiAkhir >= 88) predikat = 'A';
     else if (nilaiAkhir >= 76) predikat = 'B';
@@ -136,7 +225,7 @@ export default function App() {
       nilaiAkhir >= currentClass.kkm ? 'Tuntas' : 'Belum Tuntas';
     return {
       studentId: std.id,
-      rataTugas,
+      rataTugas: rataFormatif,
       nilaiAkhir,
       predikat,
       status,
@@ -144,7 +233,7 @@ export default function App() {
   });
 
   // Handlers for Teacher & Classes
-  const handleSaveTeacher = (updatedTeacher: TeacherProfile, newClasses?: ClassRoom[]) => {
+  const handleSaveTeacher = async (updatedTeacher: TeacherProfile, newClasses?: ClassRoom[]) => {
     setTeacher(updatedTeacher);
     if (newClasses && newClasses.length > 0) {
       setClasses(newClasses);
@@ -152,14 +241,31 @@ export default function App() {
         setActiveClassId(newClasses[0].id);
       }
     }
+
+    if (auth.currentUser) {
+      setIsCloudSaving(true);
+      try {
+        await FirestoreService.saveTeacherProfile(auth.currentUser.uid, updatedTeacher);
+        if (newClasses) {
+          for (const cls of newClasses) {
+            await FirestoreService.saveClass(auth.currentUser.uid, cls);
+          }
+        }
+        showToast('Profil guru berhasil disimpan ke Cloud Firestore', 'success');
+      } catch (err: any) {
+        showToast('Gagal menyimpan profil ke Cloud: ' + err.message, 'error');
+      } finally {
+        setIsCloudSaving(false);
+      }
+    }
   };
 
-  const handleSaveNewClass = (newClass: ClassRoom) => {
+  const handleSaveNewClass = async (newClass: ClassRoom) => {
     const updated = [...classes, newClass];
     setClasses(updated);
     setActiveClassId(newClass.id);
 
-    // Also initialize an initial attendance session for this class if empty
+    // Also initialize an initial attendance session for this class
     const initialSession: AttendanceSession = {
       id: 'ses-' + Date.now(),
       classId: newClass.id,
@@ -169,14 +275,33 @@ export default function App() {
       records: {},
     };
     setAllSessions((prev) => [...prev, initialSession]);
+
+    if (auth.currentUser) {
+      setIsCloudSaving(true);
+      try {
+        await FirestoreService.saveClass(auth.currentUser.uid, newClass);
+        await FirestoreService.saveAttendanceSession(auth.currentUser.uid, initialSession);
+        showToast(`Kelas ${newClass.namaKelas} berhasil disimpan ke Cloud Firestore`, 'success');
+      } catch (err: any) {
+        showToast('Gagal menyimpan kelas ke Cloud: ' + err.message, 'error');
+      } finally {
+        setIsCloudSaving(false);
+      }
+    }
   };
 
   const handleSelectClass = (classId: string) => {
     setActiveClassId(classId);
+    if (auth.currentUser) {
+      FirestoreService.saveTeacherProfile(auth.currentUser.uid, {
+        ...teacher,
+        activeClassId: classId,
+      }).catch((e) => console.warn('Sync activeClassId error', e));
+    }
   };
 
   // Google Login Handlers
-  const handleGoogleLoginSuccess = (
+  const handleGoogleLoginSuccess = async (
     updatedTeacher: TeacherProfile,
     selectedClassId?: string,
     newClass?: ClassRoom
@@ -190,7 +315,6 @@ export default function App() {
       setClasses(updatedClasses);
       setActiveClassId(newClass.id);
 
-      // Create initial attendance session for new class
       const initialSession: AttendanceSession = {
         id: 'ses-' + Date.now(),
         classId: newClass.id,
@@ -200,15 +324,41 @@ export default function App() {
         records: {},
       };
       setAllSessions((prev) => [...prev, initialSession]);
+
+      if (auth.currentUser) {
+        setIsCloudSaving(true);
+        try {
+          await FirestoreService.saveClass(auth.currentUser.uid, newClass);
+          await FirestoreService.saveAttendanceSession(auth.currentUser.uid, initialSession);
+          await FirestoreService.saveTeacherProfile(auth.currentUser.uid, updatedTeacher);
+        } catch (e) {
+          console.warn('Sync on login error:', e);
+        } finally {
+          setIsCloudSaving(false);
+        }
+      }
     } else if (selectedClassId) {
       setActiveClassId(selectedClassId);
+      if (auth.currentUser) {
+        FirestoreService.saveTeacherProfile(auth.currentUser.uid, {
+          ...updatedTeacher,
+          activeClassId: selectedClassId,
+        }).catch((e) => console.warn('Sync activeClassId error:', e));
+      }
     }
   };
 
-  const handleLogout = () => {
-    sessionStorage.removeItem('sim_google_auth_active');
-    setIsGoogleLoggedIn(false);
-    setTeacher((prev) => ({ ...prev, isLoggedIn: false }));
+  const handleLogout = async () => {
+    try {
+      await signOut(auth);
+      sessionStorage.removeItem('sim_google_auth_active');
+      setIsGoogleLoggedIn(false);
+      setTeacher((prev) => ({ ...prev, isLoggedIn: false }));
+      showToast('Anda telah keluar dari akun Google.', 'info');
+    } catch (error: any) {
+      console.error('Error signing out:', error);
+      showToast('Gagal keluar: ' + error.message, 'error');
+    }
   };
 
   // Delete Class Handlers
@@ -217,7 +367,7 @@ export default function App() {
     setIsDeleteClassModalOpen(true);
   };
 
-  const handleConfirmDeleteClass = (classId: string) => {
+  const handleConfirmDeleteClass = async (classId: string) => {
     if (classes.length <= 1) {
       alert('Tidak dapat menghapus. Minimal harus ada 1 kelas di aplikasi.');
       return;
@@ -237,18 +387,31 @@ export default function App() {
 
     setIsDeleteClassModalOpen(false);
     setClassToDeleteId(null);
+
+    if (auth.currentUser) {
+      setIsCloudSaving(true);
+      try {
+        await FirestoreService.deleteClass(auth.currentUser.uid, classId);
+        showToast('Kelas dan seluruh data terkait berhasil dihapus dari Cloud Firestore', 'success');
+      } catch (err: any) {
+        showToast('Gagal menghapus kelas dari Cloud: ' + err.message, 'error');
+      } finally {
+        setIsCloudSaving(false);
+      }
+    }
   };
 
   // Handlers for Attendance
-  const handleUpdateStatus = (
+  const handleUpdateStatus = async (
     sessionId: string,
     studentId: string,
     status: AttendanceStatus
   ) => {
-    setAllSessions((prev) =>
-      prev.map((ses) => {
+    let updatedTargetSession: AttendanceSession | null = null;
+    setAllSessions((prev) => {
+      const next = prev.map((ses) => {
         if (ses.id !== sessionId) return ses;
-        return {
+        const updated = {
           ...ses,
           records: {
             ...ses.records,
@@ -258,19 +421,37 @@ export default function App() {
             },
           },
         };
-      })
-    );
+        updatedTargetSession = updated;
+        return updated;
+      });
+      return next;
+    });
+
+    if (auth.currentUser && updatedTargetSession) {
+      setIsCloudSaving(true);
+      try {
+        await FirestoreService.saveAttendanceSession(
+          auth.currentUser.uid,
+          updatedTargetSession
+        );
+      } catch (err: any) {
+        showToast('Gagal menyimpan presensi ke Cloud: ' + err.message, 'error');
+      } finally {
+        setIsCloudSaving(false);
+      }
+    }
   };
 
-  const handleUpdateCatatan = (
+  const handleUpdateCatatan = async (
     sessionId: string,
     studentId: string,
     catatan: string
   ) => {
-    setAllSessions((prev) =>
-      prev.map((ses) => {
+    let updatedTargetSession: AttendanceSession | null = null;
+    setAllSessions((prev) => {
+      const next = prev.map((ses) => {
         if (ses.id !== sessionId) return ses;
-        return {
+        const updated = {
           ...ses,
           records: {
             ...ses.records,
@@ -280,13 +461,31 @@ export default function App() {
             },
           },
         };
-      })
-    );
+        updatedTargetSession = updated;
+        return updated;
+      });
+      return next;
+    });
+
+    if (auth.currentUser && updatedTargetSession) {
+      setIsCloudSaving(true);
+      try {
+        await FirestoreService.saveAttendanceSession(
+          auth.currentUser.uid,
+          updatedTargetSession
+        );
+      } catch (err: any) {
+        showToast('Gagal menyimpan catatan ke Cloud: ' + err.message, 'error');
+      } finally {
+        setIsCloudSaving(false);
+      }
+    }
   };
 
-  const handleMarkAllPresent = (sessionId: string) => {
-    setAllSessions((prev) =>
-      prev.map((ses) => {
+  const handleMarkAllPresent = async (sessionId: string) => {
+    let updatedTargetSession: AttendanceSession | null = null;
+    setAllSessions((prev) => {
+      const next = prev.map((ses) => {
         if (ses.id !== sessionId) return ses;
         const newRecords = { ...ses.records };
         classStudents.forEach((std) => {
@@ -294,21 +493,58 @@ export default function App() {
             newRecords[std.id] = { status: 'H', catatan: '' };
           }
         });
-        return { ...ses, records: newRecords };
-      })
-    );
+        const updated = { ...ses, records: newRecords };
+        updatedTargetSession = updated;
+        return updated;
+      });
+      return next;
+    });
+
+    if (auth.currentUser && updatedTargetSession) {
+      setIsCloudSaving(true);
+      try {
+        await FirestoreService.saveAttendanceSession(
+          auth.currentUser.uid,
+          updatedTargetSession
+        );
+        showToast('Semua siswa ditandai Hadir & tersimpan di Cloud Firestore', 'success');
+      } catch (err: any) {
+        showToast('Gagal menyimpan presensi ke Cloud: ' + err.message, 'error');
+      } finally {
+        setIsCloudSaving(false);
+      }
+    }
   };
 
-  const handleResetSession = (sessionId: string) => {
-    setAllSessions((prev) =>
-      prev.map((ses) => {
+  const handleResetSession = async (sessionId: string) => {
+    let updatedTargetSession: AttendanceSession | null = null;
+    setAllSessions((prev) => {
+      const next = prev.map((ses) => {
         if (ses.id !== sessionId) return ses;
-        return { ...ses, records: {} };
-      })
-    );
+        const updated = { ...ses, records: {} };
+        updatedTargetSession = updated;
+        return updated;
+      });
+      return next;
+    });
+
+    if (auth.currentUser && updatedTargetSession) {
+      setIsCloudSaving(true);
+      try {
+        await FirestoreService.saveAttendanceSession(
+          auth.currentUser.uid,
+          updatedTargetSession
+        );
+        showToast('Sesi presensi direset & tersimpan di Cloud Firestore', 'success');
+      } catch (err: any) {
+        showToast('Gagal menyimpan reset presensi ke Cloud: ' + err.message, 'error');
+      } finally {
+        setIsCloudSaving(false);
+      }
+    }
   };
 
-  const handleAddSession = (tanggal: string, pertemuanKe: number, topikMateri: string) => {
+  const handleAddSession = async (tanggal: string, pertemuanKe: number, topikMateri: string) => {
     const newSession: AttendanceSession = {
       id: 'ses-' + Date.now(),
       classId: activeClassId,
@@ -318,14 +554,38 @@ export default function App() {
       records: {},
     };
     setAllSessions((prev) => [...prev, newSession]);
+
+    if (auth.currentUser) {
+      setIsCloudSaving(true);
+      try {
+        await FirestoreService.saveAttendanceSession(auth.currentUser.uid, newSession);
+        showToast(`Pertemuan ke-${pertemuanKe} berhasil disimpan ke Cloud Firestore`, 'success');
+      } catch (err: any) {
+        showToast('Gagal menyimpan sesi ke Cloud: ' + err.message, 'error');
+      } finally {
+        setIsCloudSaving(false);
+      }
+    }
   };
 
-  const handleDeleteSession = (sessionId: string) => {
+  const handleDeleteSession = async (sessionId: string) => {
     setAllSessions((prev) => prev.filter((s) => s.id !== sessionId));
+
+    if (auth.currentUser) {
+      setIsCloudSaving(true);
+      try {
+        await FirestoreService.deleteAttendanceSession(auth.currentUser.uid, sessionId);
+        showToast('Sesi presensi berhasil dihapus dari Cloud Firestore', 'success');
+      } catch (err: any) {
+        showToast('Gagal menghapus sesi dari Cloud: ' + err.message, 'error');
+      } finally {
+        setIsCloudSaving(false);
+      }
+    }
   };
 
   // Handlers for Students
-  const handleSaveStudent = (student: Student) => {
+  const handleSaveStudent = async (student: Student) => {
     setAllStudents((prev) => {
       const exists = prev.some((s) => s.id === student.id);
       if (exists) {
@@ -333,60 +593,132 @@ export default function App() {
       }
       return [...prev, student];
     });
+
+    if (auth.currentUser) {
+      setIsCloudSaving(true);
+      try {
+        await FirestoreService.saveStudent(auth.currentUser.uid, student);
+        showToast(`Data siswa ${student.nama} berhasil disimpan ke Cloud Firestore`, 'success');
+      } catch (err: any) {
+        showToast('Gagal menyimpan siswa ke Cloud: ' + err.message, 'error');
+      } finally {
+        setIsCloudSaving(false);
+      }
+    }
   };
 
-  const handleDeleteStudent = (studentId: string) => {
+  const handleDeleteStudent = async (studentId: string) => {
     setAllStudents((prev) => prev.filter((s) => s.id !== studentId));
     // Clean up grades
     setAllGrades((prev) => prev.filter((g) => g.studentId !== studentId));
+
+    if (auth.currentUser) {
+      setIsCloudSaving(true);
+      try {
+        await FirestoreService.deleteStudent(auth.currentUser.uid, studentId);
+        showToast('Siswa berhasil dihapus dari Cloud Firestore', 'success');
+      } catch (err: any) {
+        showToast('Gagal menghapus siswa dari Cloud: ' + err.message, 'error');
+      } finally {
+        setIsCloudSaving(false);
+      }
+    }
   };
 
-  const handleUpdateStudentField = (
+  const handleUpdateStudentField = async (
     studentId: string,
     field: keyof Student,
     value: any
   ) => {
+    let updatedTargetStudent: Student | null = null;
     setAllStudents((prev) =>
-      prev.map((s) => (s.id === studentId ? { ...s, [field]: value } : s))
+      prev.map((s) => {
+        if (s.id === studentId) {
+          const updated = { ...s, [field]: value };
+          updatedTargetStudent = updated;
+          return updated;
+        }
+        return s;
+      })
     );
+
+    if (auth.currentUser && updatedTargetStudent) {
+      setIsCloudSaving(true);
+      try {
+        await FirestoreService.saveStudent(auth.currentUser.uid, updatedTargetStudent);
+      } catch (err: any) {
+        showToast('Gagal menyimpan perubahan siswa ke Cloud: ' + err.message, 'error');
+      } finally {
+        setIsCloudSaving(false);
+      }
+    }
   };
 
-  const handleImportStudents = (newStudents: Student[], mode: 'replace' | 'append') => {
+  const handleImportStudents = async (newStudents: Student[], mode: 'replace' | 'append') => {
+    let finalStudents: Student[] = [];
     setAllStudents((prev) => {
       if (mode === 'replace') {
         const others = prev.filter((s) => s.classId !== activeClassId);
-        return [...others, ...newStudents];
+        finalStudents = [...others, ...newStudents];
+        return finalStudents;
       }
-      return [...prev, ...newStudents];
+      finalStudents = [...prev, ...newStudents];
+      return finalStudents;
     });
 
-    // Auto-create blank grade rows for new students
+    let addedGrades: StudentGrade[] = [];
     setAllGrades((prev) => {
       const existingIds = new Set(prev.map((g) => g.studentId));
-      const addedGrades: StudentGrade[] = newStudents
+      addedGrades = newStudents
         .filter((s) => !existingIds.has(s.id))
         .map((s) => ({
           id: 'grd-' + s.id,
           studentId: s.id,
           classId: activeClassId,
-          tugas1: null,
-          tugas2: null,
-          tugas3: null,
-          uts: null,
-          uas: null,
+          formatif1: null,
+          formatif2: null,
+          formatif3: null,
+          formatif4: null,
+          formatif5: null,
+          formatif6: null,
+          formatif7: null,
+          formatif8: null,
+          formatif9: null,
+          formatif10: null,
+          sumatifTengah: null,
+          sumatifAkhir: null,
           praktik: null,
           catatan: '',
         }));
       return [...prev, ...addedGrades];
     });
+
+    if (auth.currentUser) {
+      setIsCloudSaving(true);
+      try {
+        await FirestoreService.importStudentsBatch(
+          auth.currentUser.uid,
+          newStudents,
+          addedGrades,
+          mode,
+          activeClassId
+        );
+        showToast(`${newStudents.length} siswa berhasil disimpan ke Cloud Firestore`, 'success');
+      } catch (err: any) {
+        showToast('Gagal menyimpan impor siswa ke Cloud: ' + err.message, 'error');
+      } finally {
+        setIsCloudSaving(false);
+      }
+    }
   };
 
   // Handlers for Grades
-  const handleUpdateGrade = (
+  const handleUpdateGrade = async (
     studentId: string,
     field: keyof StudentGrade,
     value: number | string | null
   ) => {
+    let targetGrade: StudentGrade | null = null;
     setAllGrades((prev) => {
       const existing = prev.find(
         (g) => g.studentId === studentId && g.classId === activeClassId
@@ -394,61 +726,121 @@ export default function App() {
       if (existing) {
         return prev.map((g) => {
           if (g.studentId === studentId && g.classId === activeClassId) {
-            return { ...g, [field]: value };
+            const updated = { ...g, [field]: value };
+            targetGrade = updated;
+            return updated;
           }
           return g;
         });
       }
       // Create new row
       const newGrade: StudentGrade = {
-        id: 'grd-' + Date.now(),
+        id: 'grd-' + studentId,
         studentId,
         classId: activeClassId,
-        tugas1: null,
-        tugas2: null,
-        tugas3: null,
-        uts: null,
-        uas: null,
+        formatif1: null,
+        formatif2: null,
+        formatif3: null,
+        formatif4: null,
+        formatif5: null,
+        formatif6: null,
+        formatif7: null,
+        formatif8: null,
+        formatif9: null,
+        formatif10: null,
+        sumatifTengah: null,
+        sumatifAkhir: null,
         praktik: null,
         catatan: '',
         [field]: value,
       };
+      targetGrade = newGrade;
       return [...prev, newGrade];
     });
-  };
 
-  const handleResetData = () => {
-    if (confirm('Apakah Anda yakin ingin memuat ulang seluruh data contoh bawaan?')) {
-      Storage.resetToDefault();
-      setTeacher(Storage.getTeacher());
-      setClasses(Storage.getClasses());
-      setActiveClassId(Storage.getActiveClassId());
-      setAllStudents(Storage.getAllStudents());
-      setAllSessions(Storage.getAllSessions());
-      setAllGrades(Storage.getAllGrades());
-      setActiveTab('absensi');
+    if (auth.currentUser && targetGrade) {
+      setIsCloudSaving(true);
+      try {
+        await FirestoreService.saveGrade(auth.currentUser.uid, targetGrade);
+      } catch (err: any) {
+        showToast('Gagal menyimpan nilai ke Cloud: ' + err.message, 'error');
+      } finally {
+        setIsCloudSaving(false);
+      }
     }
   };
+
+  const handleResetData = async () => {
+    if (confirm('Apakah Anda yakin ingin memuat ulang seluruh data contoh bawaan di Cloud Firestore?')) {
+      if (auth.currentUser) {
+        setIsCloudLoading(true);
+        setCloudStatusMsg('Mereset dan menyiapkan data contoh di Cloud Firestore...');
+        try {
+          const freshData = await FirestoreService.resetUserData(
+            auth.currentUser.uid,
+            auth.currentUser
+          );
+          setTeacher(freshData.teacher);
+          setClasses(freshData.classes);
+          setActiveClassId(freshData.activeClassId);
+          setAllStudents(freshData.students);
+          setAllSessions(freshData.sessions);
+          setAllGrades(freshData.grades);
+          showToast('Data contoh bawaan berhasil dimuat ke Cloud Firestore', 'success');
+        } catch (err: any) {
+          showToast('Gagal mereset data cloud: ' + err.message, 'error');
+        } finally {
+          setIsCloudLoading(false);
+        }
+      } else {
+        Storage.resetToDefault();
+        setTeacher(Storage.getTeacher());
+        setClasses(Storage.getClasses());
+        setActiveClassId(Storage.getActiveClassId());
+        setAllStudents(Storage.getAllStudents());
+        setAllSessions(Storage.getAllSessions());
+        setAllGrades(Storage.getAllGrades());
+        setActiveTab('absensi');
+      }
+    }
+  };
+
+  // Cloud Loading Screen Indicator (Requirement 3: UX Indicator Spinner/Skeleton)
+  if (isCloudLoading) {
+    return (
+      <CloudLoadingScreen
+        userEmail={teacher.email || auth.currentUser?.email || undefined}
+        userName={teacher.namaGuru || auth.currentUser?.displayName || undefined}
+        statusMessage={cloudStatusMsg}
+      />
+    );
+  }
 
   // Google Login Gate (as explicitly requested: "Awali dengan form login dengan akun google bagi user")
   if (!isGoogleLoggedIn) {
     return (
-      <GoogleLoginScreen
-        initialTeacher={teacher}
-        existingClasses={classes}
-        onLoginSuccess={handleGoogleLoginSuccess}
-      />
+      <>
+        <ToastContainer toasts={toasts} onDismiss={dismissToast} />
+        <GoogleLoginScreen
+          initialTeacher={teacher}
+          existingClasses={classes}
+          onLoginSuccess={handleGoogleLoginSuccess}
+        />
+      </>
     );
   }
 
   return (
     <div className="min-h-screen bg-slate-100 flex flex-col font-sans">
+      <ToastContainer toasts={toasts} onDismiss={dismissToast} />
+
       {/* Top Navigation */}
       <Navbar
         teacher={teacher}
         classes={classes}
         activeClassId={activeClassId}
         activeTab={activeTab}
+        isCloudSaving={isCloudSaving}
         onSelectClass={handleSelectClass}
         onSelectTab={setActiveTab}
         onOpenClassModal={() => setIsClassModalOpen(true)}
