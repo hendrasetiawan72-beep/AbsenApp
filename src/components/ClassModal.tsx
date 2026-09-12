@@ -1,16 +1,18 @@
-import React, { useState } from 'react';
-import { Layers, X, BookOpen, Target, FileText } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Layers, X, BookOpen, Target, FileText, Edit3 } from 'lucide-react';
 import { ClassRoom } from '../types';
 
 interface ClassModalProps {
   isOpen: boolean;
+  editingClass?: ClassRoom | null;
   defaultMapel: string;
-  onSaveClass: (newClass: ClassRoom) => void;
+  onSaveClass: (classData: ClassRoom) => void;
   onClose: () => void;
 }
 
 export const ClassModal: React.FC<ClassModalProps> = ({
   isOpen,
+  editingClass,
   defaultMapel,
   onSaveClass,
   onClose,
@@ -21,6 +23,24 @@ export const ClassModal: React.FC<ClassModalProps> = ({
   const [jurusan, setJurusan] = useState('');
   const [keterangan, setKeterangan] = useState('');
 
+  const isEditMode = Boolean(editingClass);
+
+  useEffect(() => {
+    if (editingClass) {
+      setNamaKelas(editingClass.namaKelas || '');
+      setMataPelajaran(editingClass.mataPelajaran || '');
+      setKkm(editingClass.kkm ?? 75);
+      setJurusan(editingClass.jurusan || '');
+      setKeterangan(editingClass.keterangan || '');
+    } else {
+      setNamaKelas('');
+      setMataPelajaran(defaultMapel || '');
+      setKkm(75);
+      setJurusan('');
+      setKeterangan('');
+    }
+  }, [isOpen, editingClass, defaultMapel]);
+
   if (!isOpen) return null;
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -30,20 +50,17 @@ export const ClassModal: React.FC<ClassModalProps> = ({
       return;
     }
 
-    const created: ClassRoom = {
-      id: 'class-' + Date.now(),
+    const savedClass: ClassRoom = {
+      id: editingClass ? editingClass.id : 'class-' + Date.now(),
       namaKelas: namaKelas.trim(),
       mataPelajaran: mataPelajaran.trim() || defaultMapel || 'Mata Pelajaran',
       kkm: Number(kkm) || 75,
       jurusan: jurusan.trim() || undefined,
       keterangan: keterangan.trim() || undefined,
-      createdAt: new Date().toISOString().split('T')[0],
+      createdAt: editingClass ? editingClass.createdAt : new Date().toISOString().split('T')[0],
     };
 
-    onSaveClass(created);
-    setNamaKelas('');
-    setJurusan('');
-    setKeterangan('');
+    onSaveClass(savedClass);
     onClose();
   };
 
@@ -61,12 +78,16 @@ export const ClassModal: React.FC<ClassModalProps> = ({
           </button>
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-white/10 border border-white/20 flex items-center justify-center text-white shrink-0">
-              <Layers className="w-5 h-5" />
+              {isEditMode ? <Edit3 className="w-5 h-5" /> : <Layers className="w-5 h-5" />}
             </div>
             <div>
-              <h2 className="text-lg font-bold">Buat Kelas Baru</h2>
+              <h2 className="text-lg font-bold">
+                {isEditMode ? 'Edit Nama Kelas & Mapel' : 'Buat Kelas Baru'}
+              </h2>
               <p className="text-xs text-indigo-200">
-                Tambahkan kelas baru untuk absensi dan rekap penilaian Anda
+                {isEditMode
+                  ? 'Perbarui nama kelas, mata pelajaran, KKM, atau informasi kelas ini'
+                  : 'Tambahkan kelas baru untuk absensi dan rekap penilaian Anda'}
               </p>
             </div>
           </div>
@@ -160,8 +181,8 @@ export const ClassModal: React.FC<ClassModalProps> = ({
               type="submit"
               className="px-5 py-2 text-xs sm:text-sm font-semibold bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg shadow-sm transition-colors cursor-pointer flex items-center gap-1.5"
             >
-              <Layers className="w-4 h-4" />
-              Simpan Kelas
+              {isEditMode ? <Edit3 className="w-4 h-4" /> : <Layers className="w-4 h-4" />}
+              <span>{isEditMode ? 'Simpan Perubahan' : 'Simpan Kelas'}</span>
             </button>
           </div>
         </form>

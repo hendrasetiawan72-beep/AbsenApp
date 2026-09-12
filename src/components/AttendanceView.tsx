@@ -42,6 +42,7 @@ interface AttendanceViewProps {
   onOpenSpreadsheetImport: () => void;
   onOpenWorkspaceTab?: () => void;
   onOpenParentReportTab?: () => void;
+  onOpenEditClass?: () => void;
 }
 
 export const AttendanceView: React.FC<AttendanceViewProps> = ({
@@ -65,6 +66,7 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
   onOpenSpreadsheetImport,
   onOpenWorkspaceTab,
   onOpenParentReportTab,
+  onOpenEditClass,
 }) => {
   // Active session selector
   const [selectedSessionId, setSelectedSessionId] = useState<string>(
@@ -170,6 +172,17 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
               <span className="text-xs font-bold text-slate-700">
                 {mataPelajaran}
               </span>
+              {onOpenEditClass && (
+                <button
+                  type="button"
+                  onClick={onOpenEditClass}
+                  title={`Edit nama kelas atau mapel (${activeClassName})`}
+                  className="inline-flex items-center gap-1 text-[11px] font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200/80 px-2 py-0.5 rounded-md transition-colors cursor-pointer shadow-2xs"
+                >
+                  <Edit3 className="w-3 h-3" />
+                  <span>Edit Kelas & Mapel</span>
+                </button>
+              )}
             </div>
 
             <h2 className="text-xl font-black text-slate-900 tracking-tight">

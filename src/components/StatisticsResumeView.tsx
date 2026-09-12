@@ -10,6 +10,7 @@ import {
   FileSpreadsheet,
   ArrowUpRight,
   ShieldAlert,
+  Edit3,
 } from 'lucide-react';
 import { Student, AttendanceSession, StudentGrade } from '../types';
 import { calculateStudentGrade } from '../utils/gradeCalculations';
@@ -21,6 +22,7 @@ interface StatisticsResumeViewProps {
   kkm: number;
   className: string;
   mataPelajaran: string;
+  onOpenEditClass?: () => void;
 }
 
 export const StatisticsResumeView: React.FC<StatisticsResumeViewProps> = ({
@@ -30,6 +32,7 @@ export const StatisticsResumeView: React.FC<StatisticsResumeViewProps> = ({
   kkm,
   className,
   mataPelajaran,
+  onOpenEditClass,
 }) => {
   // 1. Attendance Statistics Calculation
   const totalStudents = students.length;
@@ -167,6 +170,17 @@ export const StatisticsResumeView: React.FC<StatisticsResumeViewProps> = ({
               <span className="text-xs font-semibold text-slate-500">
                 KKM: <strong className="text-slate-800">{kkm}</strong>
               </span>
+              {onOpenEditClass && (
+                <button
+                  type="button"
+                  onClick={onOpenEditClass}
+                  title={`Edit nama kelas atau mapel (${className})`}
+                  className="inline-flex items-center gap-1 text-[11px] font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200/80 px-2 py-0.5 rounded-md transition-colors cursor-pointer shadow-2xs ml-1"
+                >
+                  <Edit3 className="w-3 h-3" />
+                  <span>Edit Kelas & Mapel</span>
+                </button>
+              )}
             </div>
 
             <h2 className="text-xl font-black text-slate-900 tracking-tight flex items-center gap-2">

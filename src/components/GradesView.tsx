@@ -27,6 +27,7 @@ interface GradesViewProps {
   onUpdateGrade: (studentId: string, field: keyof StudentGrade, value: number | string | null) => void;
   onUpdateStudentField?: (studentId: string, field: keyof Student, value: any) => void;
   onEditStudent?: (student: Student) => void;
+  onOpenEditClass?: () => void;
 }
 
 export const GradesView: React.FC<GradesViewProps> = ({
@@ -38,6 +39,7 @@ export const GradesView: React.FC<GradesViewProps> = ({
   onUpdateGrade,
   onUpdateStudentField,
   onEditStudent,
+  onOpenEditClass,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [filterStatus, setFilterStatus] = useState<'all' | 'tuntas' | 'belum'>('all');
@@ -205,6 +207,17 @@ export const GradesView: React.FC<GradesViewProps> = ({
               <span className="text-xs font-semibold text-slate-500">
                 KKM: <strong className="text-slate-800">{kkm}</strong>
               </span>
+              {onOpenEditClass && (
+                <button
+                  type="button"
+                  onClick={onOpenEditClass}
+                  title={`Edit nama kelas, mapel, atau KKM (${className})`}
+                  className="inline-flex items-center gap-1 text-[11px] font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200/80 px-2 py-0.5 rounded-md transition-colors cursor-pointer shadow-2xs ml-1"
+                >
+                  <Edit3 className="w-3 h-3" />
+                  <span>Edit Kelas & Mapel</span>
+                </button>
+              )}
             </div>
 
             <h2 className="text-xl font-black text-slate-900 tracking-tight">
@@ -392,13 +405,21 @@ export const GradesView: React.FC<GradesViewProps> = ({
       <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-xs">
         <div className="overflow-x-auto">
           <table className="w-full text-xs text-left border-collapse min-w-[1300px]">
-            <thead className="bg-slate-100/95 text-slate-700 font-bold uppercase tracking-wider text-[11px] border-b border-slate-200">
+            <thead className="bg-slate-100/95 text-slate-700 font-bold uppercase tracking-wider text-[11px] border-b border-slate-200 sticky top-0 z-20">
               <tr>
-                <th rowSpan={2} className="py-2.5 px-3 w-10 text-center border-r border-slate-200">No</th>
-                <th rowSpan={2} className="py-2.5 px-2 w-16 text-center border-r border-slate-200 bg-slate-50">Aksi</th>
-                <th rowSpan={2} className="py-2.5 px-3 w-28 border-r border-slate-200">NISN</th>
-                <th rowSpan={2} className="py-2.5 px-4 min-w-[180px] border-r border-slate-200">Nama Siswa</th>
+                {/* Frozen Column 1: No */}
+                <th rowSpan={2} className="sticky left-0 bg-slate-100 z-30 py-2.5 px-3 w-10 text-center border-r border-slate-200">
+                  No
+                </th>
+
+                {/* Frozen Column 2: Nama Siswa */}
+                <th rowSpan={2} className="sticky left-10 bg-slate-100 z-30 py-2.5 px-4 min-w-[190px] border-r border-slate-200 shadow-[4px_0_6px_-2px_rgba(0,0,0,0.06)]">
+                  Nama Siswa
+                </th>
+
                 <th rowSpan={2} className="py-2.5 px-2 w-14 text-center border-r border-slate-200">L/P</th>
+                <th rowSpan={2} className="py-2.5 px-3 w-26 border-r border-slate-200">NISN</th>
+                <th rowSpan={2} className="py-2.5 px-2 w-16 text-center border-r border-slate-200 bg-slate-50">Aksi</th>
 
                 {/* Group 1: 8 Kolom Asesmen Formatif + Rata */}
                 <th colSpan={9} className="py-2 px-2 text-center border-r border-slate-200 bg-emerald-50 text-emerald-900 font-black border-b border-emerald-200">
@@ -415,7 +436,7 @@ export const GradesView: React.FC<GradesViewProps> = ({
                   HASIL AKHIR
                 </th>
 
-                <th rowSpan={2} className="py-2.5 px-3 min-w-[190px]">Catatan / Evaluasi Siswa</th>
+                <th rowSpan={2} className="py-2.5 px-3 min-w-[180px]">Catatan / Evaluasi Siswa</th>
               </tr>
               <tr className="bg-slate-50 text-[10px] text-slate-600">
                 {/* Formatif Subcolumns F1..F8 + Rata */}
@@ -461,22 +482,51 @@ export const GradesView: React.FC<GradesViewProps> = ({
                   const detail = calculateStudentGrade(g, kkm);
 
                   return (
-                    <tr key={student.id} className="hover:bg-slate-50/80 transition-colors">
-                      {/* No */}
-                      <td className="py-2 px-3 text-center font-medium text-slate-500 border-r border-slate-200">
+                    <tr key={student.id} className="hover:bg-slate-50/80 transition-colors group">
+                      {/* Frozen Column 1: No */}
+                      <td className="sticky left-0 bg-white group-hover:bg-slate-50 z-10 py-2 px-3 text-center font-medium text-slate-500 border-r border-slate-200">
                         {student.no}
                       </td>
 
-                      {/* Aksi: Edit Manual */}
-                      <td className="py-1.5 px-2 text-center border-r border-slate-200 bg-slate-50/50">
+                      {/* Frozen Column 2: Nama Siswa */}
+                      <td className="sticky left-10 bg-white group-hover:bg-slate-50 z-10 py-2 px-4 font-bold text-slate-900 border-r border-slate-200 shadow-[4px_0_6px_-2px_rgba(0,0,0,0.06)]">
+                        {isQuickEditMode ? (
+                          <input
+                            type="text"
+                            value={student.nama}
+                            onChange={(e) =>
+                              onUpdateStudentField?.(student.id, 'nama', e.target.value)
+                            }
+                            placeholder="Nama Siswa..."
+                            className="w-full font-bold text-xs px-2 py-1 border border-amber-300 rounded bg-amber-50/50 text-slate-900 focus:ring-1 focus:ring-amber-500 focus:outline-none"
+                          />
+                        ) : (
+                          <span
+                            onDoubleClick={() => handleOpenManualEdit(student)}
+                            title="Klik tombol Edit atau klik dua kali untuk mengubah"
+                            className="cursor-pointer hover:text-indigo-600 block truncate max-w-[200px]"
+                          >
+                            {student.nama}
+                          </span>
+                        )}
+                      </td>
+
+                      {/* Gender Badge */}
+                      <td className="py-2 px-2 text-center border-r border-slate-200">
                         <button
                           type="button"
-                          onClick={() => handleOpenManualEdit(student)}
-                          title={`Edit manual lengkap untuk ${student.nama}`}
-                          className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-lg transition-colors cursor-pointer shadow-2xs"
+                          onClick={() => {
+                            const nextGender = student.gender === 'L' ? 'P' : 'L';
+                            onUpdateStudentField?.(student.id, 'gender', nextGender);
+                          }}
+                          title="Klik untuk beralih Jenis Kelamin (L/P)"
+                          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-bold transition-all cursor-pointer ${
+                            student.gender === 'L'
+                              ? 'bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200'
+                              : 'bg-pink-50 text-pink-700 hover:bg-pink-100 border border-pink-200'
+                          }`}
                         >
-                          <Edit3 className="w-3 h-3" />
-                          <span>Edit</span>
+                          <span>{student.gender === 'L' ? '♂ L' : '♀ P'}</span>
                         </button>
                       </td>
 
@@ -503,45 +553,16 @@ export const GradesView: React.FC<GradesViewProps> = ({
                         )}
                       </td>
 
-                      {/* Nama */}
-                      <td className="py-2 px-4 font-bold text-slate-900 border-r border-slate-200">
-                        {isQuickEditMode ? (
-                          <input
-                            type="text"
-                            value={student.nama}
-                            onChange={(e) =>
-                              onUpdateStudentField?.(student.id, 'nama', e.target.value)
-                            }
-                            placeholder="Nama Siswa..."
-                            className="w-full font-bold text-xs px-2 py-1 border border-amber-300 rounded bg-amber-50/50 text-slate-900 focus:ring-1 focus:ring-amber-500 focus:outline-none"
-                          />
-                        ) : (
-                          <span
-                            onDoubleClick={() => handleOpenManualEdit(student)}
-                            title="Klik tombol Edit atau klik dua kali untuk mengubah"
-                            className="cursor-pointer hover:text-indigo-600"
-                          >
-                            {student.nama}
-                          </span>
-                        )}
-                      </td>
-
-                      {/* Gender Badge */}
-                      <td className="py-2 px-2 text-center border-r border-slate-200">
+                      {/* Aksi: Edit Manual */}
+                      <td className="py-1.5 px-2 text-center border-r border-slate-200 bg-slate-50/50">
                         <button
                           type="button"
-                          onClick={() => {
-                            const nextGender = student.gender === 'L' ? 'P' : 'L';
-                            onUpdateStudentField?.(student.id, 'gender', nextGender);
-                          }}
-                          title="Klik untuk beralih Jenis Kelamin (L/P)"
-                          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-bold transition-all cursor-pointer ${
-                            student.gender === 'L'
-                              ? 'bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200'
-                              : 'bg-pink-50 text-pink-700 hover:bg-pink-100 border border-pink-200'
-                          }`}
+                          onClick={() => handleOpenManualEdit(student)}
+                          title={`Edit manual lengkap untuk ${student.nama}`}
+                          className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-lg transition-colors cursor-pointer shadow-2xs"
                         >
-                          <span>{student.gender === 'L' ? '♂ L' : '♀ P'}</span>
+                          <Edit3 className="w-3 h-3" />
+                          <span>Edit</span>
                         </button>
                       </td>
 

@@ -11,6 +11,7 @@ import {
   Plus,
   ArrowRight,
   BookOpen,
+  Edit3,
 } from 'lucide-react';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
 import { auth } from './lib/firebase';
@@ -28,6 +29,7 @@ import {
   CalculatedGrade,
 } from './types';
 import { Storage } from './utils/storage';
+import { isEmailRegistered } from './utils/whitelist';
 import { Navbar } from './components/Navbar';
 import { AttendanceView } from './components/AttendanceView';
 import { GradesView } from './components/GradesView';
@@ -82,6 +84,7 @@ export default function App() {
   // Modals state
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
   const [isClassModalOpen, setIsClassModalOpen] = useState(false);
+  const [editingClass, setEditingClass] = useState<ClassRoom | null>(null);
   const [isStudentModalOpen, setIsStudentModalOpen] = useState(false);
   const [isSpreadsheetImportOpen, setIsSpreadsheetImportOpen] = useState(false);
   const [editingStudent, setEditingStudent] = useState<Student | null>(null);
@@ -94,6 +97,17 @@ export default function App() {
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
+        const userEmail = (firebaseUser.email || '').trim().toLowerCase();
+        // Verify whitelist registration
+        if (!isEmailRegistered(userEmail)) {
+          console.warn(`[Auth] User ${userEmail} is not registered in admin whitelist.`);
+          await signOut(auth);
+          setIsGoogleLoggedIn(false);
+          sessionStorage.removeItem('sim_google_auth_active');
+          setIsCloudLoading(false);
+          return;
+        }
+
         setIsGoogleLoggedIn(true);
         sessionStorage.setItem('sim_google_auth_active', 'true');
         setIsCloudLoading(true);
@@ -257,6 +271,52 @@ export default function App() {
       } finally {
         setIsCloudSaving(false);
       }
+    }
+  };
+
+  const handleOpenCreateClass = () => {
+    setEditingClass(null);
+    setIsClassModalOpen(true);
+  };
+
+  const handleOpenEditClass = (cls?: ClassRoom) => {
+    const target = cls || currentClass;
+    if (target) {
+      setEditingClass(target);
+      setIsClassModalOpen(true);
+    }
+  };
+
+  const handleSaveClass = async (classData: ClassRoom) => {
+    const existingIndex = classes.findIndex((c) => c.id === classData.id);
+
+    if (existingIndex >= 0) {
+      // Edit / Update existing class
+      const updatedClasses = classes.map((c) => (c.id === classData.id ? classData : c));
+      setClasses(updatedClasses);
+
+      if (auth.currentUser) {
+        setIsCloudSaving(true);
+        try {
+          await FirestoreService.saveClass(auth.currentUser.uid, classData);
+          showToast(
+            `Data kelas "${classData.namaKelas}" (Mapel: ${classData.mataPelajaran}) berhasil diperbarui di Cloud Firestore`,
+            'success'
+          );
+        } catch (err: any) {
+          showToast('Gagal memperbarui kelas ke Cloud: ' + err.message, 'error');
+        } finally {
+          setIsCloudSaving(false);
+        }
+      } else {
+        showToast(
+          `Data kelas "${classData.namaKelas}" (Mapel: ${classData.mataPelajaran}) berhasil diperbarui`,
+          'success'
+        );
+      }
+    } else {
+      // Create new class
+      await handleSaveNewClass(classData);
     }
   };
 
@@ -843,7 +903,8 @@ export default function App() {
         isCloudSaving={isCloudSaving}
         onSelectClass={handleSelectClass}
         onSelectTab={setActiveTab}
-        onOpenClassModal={() => setIsClassModalOpen(true)}
+        onOpenClassModal={handleOpenCreateClass}
+        onOpenEditClass={handleOpenEditClass}
         onOpenLoginModal={() => setIsLoginModalOpen(true)}
         onResetData={handleResetData}
         onDeleteClass={handleRequestDeleteClass}
@@ -881,6 +942,7 @@ export default function App() {
             onOpenSpreadsheetImport={() => setIsSpreadsheetImportOpen(true)}
             onOpenWorkspaceTab={() => setActiveTab('workspace')}
             onOpenParentReportTab={() => setActiveTab('laporan-ortu')}
+            onOpenEditClass={() => handleOpenEditClass(currentClass)}
           />
         )}
 
@@ -898,6 +960,7 @@ export default function App() {
               setEditingStudent(s);
               setIsStudentModalOpen(true);
             }}
+            onOpenEditClass={() => handleOpenEditClass(currentClass)}
           />
         )}
 
@@ -910,6 +973,7 @@ export default function App() {
             kkm={currentClass.kkm}
             className={currentClass.namaKelas}
             mataPelajaran={currentClass.mataPelajaran}
+            onOpenEditClass={() => handleOpenEditClass(currentClass)}
           />
         )}
 
@@ -926,6 +990,15 @@ export default function App() {
                     <span className="text-xs font-bold text-slate-700">
                       {currentClass.mataPelajaran}
                     </span>
+                    <button
+                      type="button"
+                      onClick={() => handleOpenEditClass(currentClass)}
+                      title={`Edit nama kelas atau mapel (${currentClass.namaKelas})`}
+                      className="inline-flex items-center gap-1 text-[11px] font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200/80 px-2 py-0.5 rounded-md transition-colors cursor-pointer shadow-2xs ml-1"
+                    >
+                      <Edit3 className="w-3 h-3" />
+                      <span>Edit Kelas & Mapel</span>
+                    </button>
                   </div>
                   <h2 className="text-xl font-black text-slate-900 tracking-tight flex items-center gap-2">
                     <FileSpreadsheet className="w-5 h-5 text-indigo-600" />
@@ -1083,9 +1156,13 @@ export default function App() {
 
       <ClassModal
         isOpen={isClassModalOpen}
+        editingClass={editingClass}
         defaultMapel={teacher.mataPelajaranUtama}
-        onSaveClass={handleSaveNewClass}
-        onClose={() => setIsClassModalOpen(false)}
+        onSaveClass={handleSaveClass}
+        onClose={() => {
+          setIsClassModalOpen(false);
+          setEditingClass(null);
+        }}
       />
 
       <StudentModal
