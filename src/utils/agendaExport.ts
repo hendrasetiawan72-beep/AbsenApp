@@ -225,17 +225,6 @@ export function exportSingleAgendaToWord(
   </style>
 </head>
 <body>
-  <table class="header-table">
-    <tr>
-      <td class="header-center">
-        <div class="header-title-org">MAJELIS PENDIDIKAN DASAR DAN MENENGAH PNF</div>
-        <div class="header-title-org">PIMPINAN CABANG MUHAMMADIYAH BAWANG</div>
-        <div class="header-title-school">SMK MUHAMMADIYAH BAWANG</div>
-        <div class="header-address">Jl. Bawang-Sukorejo Km. 01, Desa Jlamprang, Kecamatan Bawang, Kabupaten Batang, Jawa Tengah 51274 • Web: www.smkmuhiba.sch.id</div>
-      </td>
-    </tr>
-  </table>
-
   <div class="doc-title">AGENDA & JURNAL HARIAN MENGAJAR</div>
   <div class="doc-subtitle">Tahun Pelajaran ${teacher.tahunAjaran || '2025/2026'} - Semester ${teacher.semester || 'Ganjil'}</div>
 
@@ -246,9 +235,9 @@ export function exportSingleAgendaToWord(
       <td><strong>${teacher.namaGuru || '-'}</strong></td>
     </tr>
     <tr>
-      <td class="info-label">NIP</td>
+      <td class="info-label">NBM</td>
       <td class="info-separator">:</td>
-      <td>${teacher.nip || '-'}</td>
+      <td>${teacher.nbm || teacher.nip || '-'}</td>
     </tr>
     <tr>
       <td class="info-label">Mata Pelajaran</td>
@@ -299,14 +288,14 @@ export function exportSingleAgendaToWord(
         Kepala SMK Muhammadiyah Bawang
         <br><br><br><br>
         <strong>Imam Pamungkas, S.Pd., M.Si.</strong><br>
-        NIP. -
+        NBM. 1102.7909.1069421
       </td>
       <td>
         Bawang, ${formattedDate}<br>
         Guru Mata Pelajaran
         <br><br><br><br>
         <strong>${teacher.namaGuru || 'Guru Pendidik'}</strong><br>
-        NIP. ${teacher.nip || '..............................'}
+        NBM. ${teacher.nbm || teacher.nip || '..............................'}
       </td>
     </tr>
   </table>
@@ -437,17 +426,6 @@ export function exportAllAgendasToWord(
   </style>
 </head>
 <body>
-  <table class="header-table">
-    <tr>
-      <td class="header-center">
-        <div class="header-title-org">MAJELIS PENDIDIKAN DASAR DAN MENENGAH PNF</div>
-        <div class="header-title-org">PIMPINAN CABANG MUHAMMADIYAH BAWANG</div>
-        <div class="header-title-school">SMK MUHAMMADIYAH BAWANG</div>
-        <div class="header-address">Jl. Bawang-Sukorejo Km. 01, Desa Jlamprang, Kecamatan Bawang, Kabupaten Batang, Jawa Tengah 51274 • Web: www.smkmuhiba.sch.id</div>
-      </td>
-    </tr>
-  </table>
-
   <div class="doc-title">BUKU JURNAL & AGENDA HARIAN MENGAJAR GURU</div>
   <div class="doc-subtitle">Tahun Pelajaran ${teacher.tahunAjaran || '2025/2026'} - Semester ${teacher.semester || 'Ganjil'}</div>
 
@@ -459,8 +437,8 @@ export function exportAllAgendasToWord(
       <td width="30%">: ${teacher.mataPelajaranUtama || '-'}</td>
     </tr>
     <tr>
-      <td><strong>NIP</strong></td>
-      <td>: ${teacher.nip || '-'}</td>
+      <td><strong>NBM</strong></td>
+      <td>: ${teacher.nbm || teacher.nip || '-'}</td>
       <td><strong>Target Kelas</strong></td>
       <td>: ${titleClass}</td>
     </tr>
@@ -490,14 +468,14 @@ export function exportAllAgendasToWord(
         Kepala SMK Muhammadiyah Bawang
         <br><br><br><br>
         <strong>Imam Pamungkas, S.Pd., M.Si.</strong><br>
-        NIP. -
+        NBM. 1102.7909.1069421
       </td>
       <td>
         Bawang, ${formatIndonesianDate(new Date().toISOString().split('T')[0])}<br>
         Guru Pengampu Mata Pelajaran
         <br><br><br><br>
         <strong>${teacher.namaGuru || 'Guru Pendidik'}</strong><br>
-        NIP. ${teacher.nip || '..............................'}
+        NBM. ${teacher.nbm || teacher.nip || '..............................'}
       </td>
     </tr>
   </table>

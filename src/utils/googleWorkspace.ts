@@ -2,6 +2,9 @@ import { initializeApp, getApps, getApp } from 'firebase/app';
 import {
   getAuth,
   signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
+  signInWithCredential,
   GoogleAuthProvider,
   onAuthStateChanged,
   User,
@@ -26,9 +29,12 @@ export const WORKSPACE_SCOPES = [
   'https://www.googleapis.com/auth/gmail.readonly',
 ];
 
-const provider = new GoogleAuthProvider();
-WORKSPACE_SCOPES.forEach((scope) => provider.addScope(scope));
-provider.setCustomParameters({ prompt: 'select_account' });
+export const googleWorkspaceProvider = new GoogleAuthProvider();
+WORKSPACE_SCOPES.forEach((scope) => googleWorkspaceProvider.addScope(scope));
+googleWorkspaceProvider.setCustomParameters({ prompt: 'select_account' });
+
+// Backward compatibility
+export const provider = googleWorkspaceProvider;
 
 // In-memory token cache (NEVER persist in localStorage per guidelines)
 let cachedAccessToken: string | null = null;
@@ -56,13 +62,99 @@ export const initGoogleWorkspaceAuth = (
   });
 };
 
+/**
+ * METODE A: Panggil langsung dari Event Klik (User Gesture Sinkron)
+ * Browser modern memblokir popup jika dipanggil setelah await/async.
+ * Fungsi ini memanggil signInWithPopup secara langsung dan mengembalikan Promise.
+ */
+export const signInWithGoogleWorkspaceDirect = (
+  onSuccess: (res: { user: User; accessToken: string }) => void,
+  onError: (err: any) => void
+) => {
+  isSigningIn = true;
+  // Panggil langsung saat event klik tombol terjadi (sinkron user gesture)
+  signInWithPopup(auth, googleWorkspaceProvider)
+    .then((result) => {
+      const credential = GoogleAuthProvider.credentialFromResult(result);
+      const accessToken = credential?.accessToken || '';
+      cachedAccessToken = accessToken;
+      cachedUser = result.user;
+      onSuccess({ user: result.user, accessToken });
+    })
+    .catch((error) => {
+      console.warn('Google Workspace Direct Popup error:', error);
+      onError(error);
+    })
+    .finally(() => {
+      isSigningIn = false;
+    });
+};
+
+/**
+ * METODE B: Ganti Metode dari Popup ke Redirect (signInWithRedirect)
+ * Memindahkan halaman langsung ke Google OAuth tanpa membuka jendela baru,
+ * sehingga tidak akan pernah diblokir oleh browser / mobile WebView.
+ */
+export const signInWithGoogleWorkspaceRedirect = async (): Promise<void> => {
+  isSigningIn = true;
+  try {
+    sessionStorage.setItem('google_auth_redirect_active', 'true');
+  } catch (e) {
+    // Ignore storage issues
+  }
+  await signInWithRedirect(auth, googleWorkspaceProvider);
+};
+
+/**
+ * Cek hasil Redirect setelah kembali dari halaman Google OAuth
+ */
+export const checkGoogleWorkspaceRedirectResult = async (): Promise<{
+  user: User;
+  accessToken: string;
+} | null> => {
+  try {
+    const result = await getRedirectResult(auth);
+    if (result) {
+      const credential = GoogleAuthProvider.credentialFromResult(result);
+      const accessToken = credential?.accessToken || '';
+      cachedAccessToken = accessToken;
+      cachedUser = result.user;
+      try {
+        sessionStorage.removeItem('google_auth_redirect_active');
+      } catch (e) {}
+      return { user: result.user, accessToken };
+    }
+    return null;
+  } catch (error: any) {
+    console.error('Check redirect result error:', error);
+    try {
+      sessionStorage.removeItem('google_auth_redirect_active');
+    } catch (e) {}
+    throw error;
+  }
+};
+
+/**
+ * METODE C: Gunakan Google Identity Services (GIS) Credential
+ * Menerima ID Token dari SDK resmi Google (google.accounts.id)
+ * dan mengautentikasi ke Firebase tanpa memicu popup blocker.
+ */
+export const signInWithGoogleCredentialToken = async (idToken: string): Promise<{
+  user: User;
+}> => {
+  const credential = GoogleAuthProvider.credential(idToken);
+  const result = await signInWithCredential(auth, credential);
+  cachedUser = result.user;
+  return { user: result.user };
+};
+
 export const signInWithGoogleWorkspace = async (): Promise<{
   user: User;
   accessToken: string;
 }> => {
   try {
     isSigningIn = true;
-    const result = await signInWithPopup(auth, provider);
+    const result = await signInWithPopup(auth, googleWorkspaceProvider);
     const credential = GoogleAuthProvider.credentialFromResult(result);
     if (!credential?.accessToken) {
       throw new Error('Tidak dapat memperoleh Access Token dari Akun Google.');

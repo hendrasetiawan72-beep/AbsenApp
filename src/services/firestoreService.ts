@@ -17,6 +17,7 @@ import {
   AttendanceSession,
   StudentGrade,
   TeachingAgenda,
+  GradeColumnHeader,
 } from '../types';
 import { Storage } from '../utils/storage';
 
@@ -391,6 +392,67 @@ export const FirestoreService = {
       sanitizeForFirestore({ ...grade, teacherUid: uid }),
       { merge: true }
     );
+  },
+
+  /**
+   * Save multiple Student Grades in batch to Cloud Firestore
+   */
+  async saveGradesBatch(uid: string, grades: StudentGrade[]): Promise<void> {
+    if (!grades || grades.length === 0) return;
+    const batch = writeBatch(db);
+    grades.forEach((grade) => {
+      const docRef = doc(db, 'users', uid, 'grades', grade.id);
+      batch.set(
+        docRef,
+        sanitizeForFirestore({ ...grade, teacherUid: uid }),
+        { merge: true }
+      );
+    });
+    await batch.commit();
+  },
+
+  /**
+   * Save Grade Column Headers (dates & descriptions for 4 columns x 6 months)
+   */
+  async saveGradeHeaders(
+    uid: string,
+    classId: string,
+    headers: GradeColumnHeader[]
+  ): Promise<void> {
+    const docRef = doc(db, 'users', uid, 'grade_headers', classId);
+    await setDoc(
+      docRef,
+      sanitizeForFirestore({
+        classId,
+        headers,
+        updatedAt: new Date().toISOString(),
+        teacherUid: uid,
+      }),
+      { merge: true }
+    );
+  },
+
+  /**
+   * Get Grade Column Headers from Cloud Firestore
+   */
+  async getGradeHeaders(
+    uid: string,
+    classId: string
+  ): Promise<GradeColumnHeader[] | null> {
+    try {
+      const docRef = doc(db, 'users', uid, 'grade_headers', classId);
+      const snap = await getDoc(docRef);
+      if (snap.exists()) {
+        const data = snap.data();
+        if (data && Array.isArray(data.headers)) {
+          return data.headers;
+        }
+      }
+      return null;
+    } catch (err) {
+      console.error('Error fetching grade headers from Firestore:', err);
+      return null;
+    }
   },
 
   /**

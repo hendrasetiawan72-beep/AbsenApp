@@ -587,7 +587,7 @@ I. IDENTITAS KELAS DAN PENGAJAR
 • Jurusan        : ${currentClass.jurusan || 'Semua Kompetensi Keahlian'}
 • Mata Pelajaran : ${currentClass.mataPelajaran}
 • Guru Pengampu  : ${teacher.namaGuru}
-• NIP / NUPTK    : ${teacher.nip || '-'}
+• NBM / NIP      : ${teacher.nbm || teacher.nip || '-'}
 • Jumlah Peserta : ${students.length} Siswa
 • Total Pertemuan: ${sessions.length} Kali
 
@@ -607,7 +607,7 @@ Kepala SMK Muhammadiyah Bawang                Guru Mata Pelajaran
 
 
 Imam Pamungkas, S.Pd., M.Si.                  ${teacher.namaGuru}
-NIP. -                                        NIP. ${teacher.nip || '-'}
+NBM. 1102.7909.1069421                        NBM. ${teacher.nbm || teacher.nip || '-'}
 `;
       } else {
         // Surat Panggilan / Peringatan Siswa
@@ -655,7 +655,7 @@ Guru Pengampu / Wali Kelas                   Waka Kesiswaan / BK SMK Muhammadiya
 
 
 ${teacher.namaGuru}                          .......................................
-NIP. ${teacher.nip || '-'}
+NBM. ${teacher.nbm || teacher.nip || '-'}
 `;
       }
 

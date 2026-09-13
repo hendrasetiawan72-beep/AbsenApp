@@ -586,8 +586,8 @@ export const TeachingAgendaView: React.FC<TeachingAgendaViewProps> = ({
                 <span className="font-semibold text-slate-800">{teacher.namaGuru || 'Guru SMK'}</span>
               </div>
               <div className="flex justify-between py-1 border-b border-slate-100">
-                <span className="text-slate-400">NIP</span>
-                <span className="font-mono text-slate-800">{teacher.nip || '-'}</span>
+                <span className="text-slate-400">NBM</span>
+                <span className="font-mono text-slate-800">{teacher.nbm || teacher.nip || '-'}</span>
               </div>
               <div className="flex justify-between py-1 border-b border-slate-100">
                 <span className="text-slate-400">Sekolah</span>
@@ -879,22 +879,6 @@ export const TeachingAgendaView: React.FC<TeachingAgendaViewProps> = ({
 
             {/* Printable Document Body */}
             <div className="overflow-y-auto p-6 sm:p-10 font-serif text-slate-900 leading-normal">
-              {/* Kop Surat Resmi */}
-              <div className="text-center border-b-4 border-double border-slate-900 pb-3 mb-6">
-                <div className="text-xs font-bold uppercase tracking-wider">
-                  MAJELIS PENDIDIKAN DASAR DAN MENENGAH PNF
-                </div>
-                <div className="text-xs font-bold uppercase tracking-wider">
-                  PIMPINAN CABANG MUHAMMADIYAH BAWANG
-                </div>
-                <div className="text-xl sm:text-2xl font-bold uppercase tracking-wide my-1">
-                  SMK MUHAMMADIYAH BAWANG
-                </div>
-                <div className="text-[11px] italic font-sans text-slate-600">
-                  Jl. Bawang-Sukorejo Km. 01, Desa Jlamprang, Kecamatan Bawang, Kabupaten Batang, Jawa Tengah 51274 • Web: www.smkmuhiba.sch.id
-                </div>
-              </div>
-
               {isConsolidatedPrint ? (
                 /* Consolidated Report */
                 <div>
@@ -918,9 +902,9 @@ export const TeachingAgendaView: React.FC<TeachingAgendaViewProps> = ({
                         <td>{teacher.mataPelajaranUtama || '-'}</td>
                       </tr>
                       <tr>
-                        <td className="font-semibold">NIP</td>
+                        <td className="font-semibold">NBM</td>
                         <td>:</td>
-                        <td>{teacher.nip || '-'}</td>
+                        <td>{teacher.nbm || teacher.nip || '-'}</td>
                         <td className="font-semibold">Target Kelas</td>
                         <td>:</td>
                         <td className="font-bold">{activeClassNameForFilter}</td>
@@ -988,9 +972,9 @@ export const TeachingAgendaView: React.FC<TeachingAgendaViewProps> = ({
                         <td className="font-bold">{teacher.namaGuru || '-'}</td>
                       </tr>
                       <tr className="border-b border-slate-100 py-1">
-                        <td className="font-semibold py-1">NIP</td>
+                        <td className="font-semibold py-1">NBM</td>
                         <td>:</td>
-                        <td>{teacher.nip || '-'}</td>
+                        <td>{teacher.nbm || teacher.nip || '-'}</td>
                       </tr>
                       <tr className="border-b border-slate-100 py-1">
                         <td className="font-semibold py-1">Kelas</td>
@@ -1055,14 +1039,14 @@ export const TeachingAgendaView: React.FC<TeachingAgendaViewProps> = ({
                   <p>Kepala SMK Muhammadiyah Bawang</p>
                   <div className="h-20" />
                   <p className="font-bold underline">Imam Pamungkas, S.Pd., M.Si.</p>
-                  <p className="text-[11px] text-slate-600">NIP. -</p>
+                  <p className="text-[11px] text-slate-600">NBM. 1102.7909.1069421</p>
                 </div>
                 <div>
                   <p>Bawang, {formatIndonesianDate(previewAgenda ? previewAgenda.tanggal : todayStr)}</p>
                   <p>Guru Mata Pelajaran</p>
                   <div className="h-20" />
                   <p className="font-bold underline">{teacher.namaGuru || 'Guru Pendidik'}</p>
-                  <p className="text-[11px] text-slate-600">NIP. {teacher.nip || '..............................'}</p>
+                  <p className="text-[11px] text-slate-600">NBM. {teacher.nbm || teacher.nip || '..............................'}</p>
                 </div>
               </div>
             </div>

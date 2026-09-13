@@ -1,5 +1,5 @@
 import * as XLSX from 'xlsx';
-import { Student, AttendanceSession, StudentGrade, Gender } from '../types';
+import { Student, AttendanceSession, StudentGrade, Gender, GradeColumnHeader } from '../types';
 
 export interface ParsedStudentRow {
   no: number;
@@ -326,57 +326,87 @@ export function exportAttendanceToExcel(
 }
 
 /**
- * Export full grades sheet to Excel with 10 Assessment Columns (Formatif 1-8 & Sumatif STS/SAS)
+ * Export full grades sheet to Excel with Monthly Assessment Columns (6 Months x 4 Columns)
  */
 export function exportGradesToExcel(
   className: string,
   mapel: string,
   kkm: number,
   students: Student[],
-  grades: StudentGrade[]
+  grades: StudentGrade[],
+  headers?: GradeColumnHeader[]
 ): void {
   const rows: Record<string, unknown>[] = [];
 
   students.forEach((s) => {
     const g = grades.find((item) => item.studentId === s.id);
-    const f1 = g?.formatif1 ?? g?.tugas1 ?? null;
-    const f2 = g?.formatif2 ?? g?.tugas2 ?? null;
-    const f3 = g?.formatif3 ?? g?.tugas3 ?? null;
-    const f4 = g?.formatif4 ?? g?.praktik ?? null;
-    const f5 = g?.formatif5 ?? null;
-    const f6 = g?.formatif6 ?? null;
-    const f7 = g?.formatif7 ?? null;
-    const f8 = g?.formatif8 ?? null;
-    const sumatifTengah = g?.sumatifTengah ?? g?.uts ?? null;
-    const sumatifAkhir = g?.sumatifAkhir ?? g?.uas ?? null;
+    const rowObj: Record<string, unknown> = {
+      'No': s.no,
+      'NISN': s.nisn,
+      'Nama Siswa': s.nama,
+      'L/P': s.gender,
+    };
 
-    const validFormatif = [f1, f2, f3, f4, f5, f6, f7, f8].filter(
-      (v): v is number => v !== null && !isNaN(v)
-    );
-    const rataFormatif =
-      validFormatif.length > 0
-        ? Math.round(validFormatif.reduce((a, b) => a + b, 0) / validFormatif.length)
-        : 0;
+    let totalScore = 0;
+    let scoreCount = 0;
 
-    let totalWeightedScore = 0;
-    let totalWeight = 0;
+    if (headers && headers.length > 0) {
+      // Monthly 4-column structure
+      headers.forEach((h) => {
+        let val: number | null = null;
+        if (g?.monthlyGrades && g.monthlyGrades[h.key] !== undefined) {
+          val = g.monthlyGrades[h.key];
+        } else {
+          // Backward compatibility
+          if (h.monthIndex === 0) {
+            if (h.colIndex === 0) val = g?.formatif1 ?? g?.tugas1 ?? null;
+            else if (h.colIndex === 1) val = g?.formatif2 ?? g?.tugas2 ?? null;
+            else if (h.colIndex === 2) val = g?.formatif3 ?? g?.tugas3 ?? null;
+            else if (h.colIndex === 3) val = g?.formatif4 ?? g?.praktik ?? null;
+          } else if (h.monthIndex === 1) {
+            if (h.colIndex === 0) val = g?.formatif5 ?? null;
+            else if (h.colIndex === 1) val = g?.formatif6 ?? null;
+            else if (h.colIndex === 2) val = g?.formatif7 ?? null;
+            else if (h.colIndex === 3) val = g?.formatif8 ?? null;
+          }
+        }
 
-    if (validFormatif.length > 0) {
-      totalWeightedScore += rataFormatif * 0.5;
-      totalWeight += 0.5;
+        const colName = `[${h.monthName}] ${h.colLabel} (${h.keterangan || 'Penilaian'} - ${h.tanggal || '-'})`;
+        rowObj[colName] = val !== null && !isNaN(Number(val)) ? Number(val) : '';
+
+        if (val !== null && !isNaN(Number(val))) {
+          totalScore += Number(val);
+          scoreCount++;
+        }
+      });
+    } else {
+      // Standard format
+      const f1 = g?.formatif1 ?? g?.tugas1 ?? null;
+      const f2 = g?.formatif2 ?? g?.tugas2 ?? null;
+      const f3 = g?.formatif3 ?? g?.tugas3 ?? null;
+      const f4 = g?.formatif4 ?? g?.praktik ?? null;
+      const f5 = g?.formatif5 ?? null;
+      const f6 = g?.formatif6 ?? null;
+      const f7 = g?.formatif7 ?? null;
+      const f8 = g?.formatif8 ?? null;
+
+      rowObj['Formatif 1'] = f1 ?? '';
+      rowObj['Formatif 2'] = f2 ?? '';
+      rowObj['Formatif 3'] = f3 ?? '';
+      rowObj['Formatif 4'] = f4 ?? '';
+      rowObj['Formatif 5'] = f5 ?? '';
+      rowObj['Formatif 6'] = f6 ?? '';
+      rowObj['Formatif 7'] = f7 ?? '';
+      rowObj['Formatif 8'] = f8 ?? '';
+
+      const valid = [f1, f2, f3, f4, f5, f6, f7, f8].filter((v): v is number => v !== null && !isNaN(v));
+      if (valid.length > 0) {
+        totalScore = valid.reduce((a, b) => a + b, 0);
+        scoreCount = valid.length;
+      }
     }
-    if (sumatifTengah !== null && !isNaN(sumatifTengah)) {
-      totalWeightedScore += sumatifTengah * 0.25;
-      totalWeight += 0.25;
-    }
-    if (sumatifAkhir !== null && !isNaN(sumatifAkhir)) {
-      totalWeightedScore += sumatifAkhir * 0.25;
-      totalWeight += 0.25;
-    }
 
-    const nilaiAkhir =
-      totalWeight > 0 ? Math.round(totalWeightedScore / totalWeight) : rataFormatif;
-
+    const nilaiAkhir = scoreCount > 0 ? Math.round(totalScore / scoreCount) : 0;
     let predikat = 'D';
     if (nilaiAkhir >= 88) predikat = 'A';
     else if (nilaiAkhir >= 76) predikat = 'B';
@@ -384,28 +414,13 @@ export function exportGradesToExcel(
 
     const status = nilaiAkhir >= kkm ? 'Tuntas' : 'Belum Tuntas';
 
-    rows.push({
-      'No': s.no,
-      'NISN': s.nisn,
-      'Nama Siswa': s.nama,
-      'L/P': s.gender,
-      'Formatif 1': f1 ?? '',
-      'Formatif 2': f2 ?? '',
-      'Formatif 3': f3 ?? '',
-      'Formatif 4': f4 ?? '',
-      'Formatif 5': f5 ?? '',
-      'Formatif 6': f6 ?? '',
-      'Formatif 7': f7 ?? '',
-      'Formatif 8': f8 ?? '',
-      'Rata Formatif': rataFormatif,
-      'Sumatif STS': sumatifTengah ?? '',
-      'Sumatif SAS': sumatifAkhir ?? '',
-      'Nilai Akhir': nilaiAkhir,
-      'Predikat': predikat,
-      'KKM': kkm,
-      'Status': status,
-      'Catatan Evaluasi': g?.catatan || '',
-    });
+    rowObj['Nilai Akhir'] = nilaiAkhir;
+    rowObj['Predikat'] = predikat;
+    rowObj['KKM'] = kkm;
+    rowObj['Status'] = status;
+    rowObj['Catatan Evaluasi'] = g?.catatan || '';
+
+    rows.push(rowObj);
   });
 
   const worksheet = XLSX.utils.json_to_sheet(rows);

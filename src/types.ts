@@ -6,6 +6,7 @@ export interface TeacherProfile {
   id: string;
   namaGuru: string;
   nip: string;
+  nbm?: string; // Nomor Baku Muhammadiyah (NBM)
   namaSekolah: string;
   mataPelajaranUtama: string;
   tahunAjaran: string;
@@ -52,10 +53,24 @@ export interface AttendanceSession {
   records: Record<string, AttendanceRecordItem>; // studentId -> { status, catatan }
 }
 
+export interface GradeColumnHeader {
+  key: string; // e.g. "m0_c0"
+  monthIndex: number; // 0 to 5
+  monthName: string; // e.g. 'Juli'
+  colIndex: number; // 0 to 3
+  colLabel: string; // 'Nilai 1', 'Nilai 2', etc.
+  tanggal: string; // editable date (e.g. '2025-07-21')
+  keterangan: string; // editable description (e.g. 'UH 1: Teori Dasar')
+}
+
 export interface StudentGrade {
   id: string;
   studentId: string;
   classId: string;
+
+  // Nilai per bulan dalam satu semester (6 bulan x 4 kolom nilai = 24 kolom)
+  // Key format: "m{monthIndex}_c{colIndex}" misal "m0_c0", "m0_c1", etc.
+  monthlyGrades?: Record<string, number | null>;
 
   // 10 Kolom Penilaian: 8 Asesmen Formatif + 2 Asesmen Sumatif
   formatif1?: number | null;

@@ -5,7 +5,9 @@ import {
   AttendanceSession,
   StudentGrade,
   TeachingAgenda,
+  GradeColumnHeader,
 } from '../types';
+import { getDefaultGradeHeaders } from './gradeHeaders';
 
 const STORAGE_KEYS = {
   TEACHER: 'absensi_teacher_profile',
@@ -14,6 +16,7 @@ const STORAGE_KEYS = {
   STUDENTS: 'absensi_students',
   ATTENDANCE: 'absensi_sessions',
   GRADES: 'absensi_grades',
+  GRADE_HEADERS: 'absensi_grade_headers',
   AGENDAS: 'absensi_teaching_agendas',
 };
 
@@ -293,6 +296,36 @@ export const Storage = {
   getGradesByClass(classId: string): StudentGrade[] {
     const all = this.getAllGrades();
     return all.filter((g) => g.classId === classId);
+  },
+
+  getGradeHeaders(
+    classId: string,
+    semester: 'Ganjil' | 'Genap' = 'Ganjil',
+    academicYear: string = '2025/2026'
+  ): GradeColumnHeader[] {
+    try {
+      const data = localStorage.getItem(`${STORAGE_KEYS.GRADE_HEADERS}_${classId}`);
+      if (data) {
+        const parsed = JSON.parse(data);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed;
+        }
+      }
+      return getDefaultGradeHeaders(semester, academicYear);
+    } catch {
+      return getDefaultGradeHeaders(semester, academicYear);
+    }
+  },
+
+  setGradeHeaders(classId: string, headers: GradeColumnHeader[]): void {
+    try {
+      localStorage.setItem(
+        `${STORAGE_KEYS.GRADE_HEADERS}_${classId}`,
+        JSON.stringify(headers)
+      );
+    } catch (err) {
+      console.error('Failed to save grade headers to localStorage:', err);
+    }
   },
 
   getAllAgendas(): TeachingAgenda[] {

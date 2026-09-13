@@ -508,7 +508,7 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
                 <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
                 <input
                   type="text"
-                  placeholder="Cari nama siswa / NISN..."
+                  placeholder="Cari nama siswa atau catatan..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="w-full text-xs pl-9 pr-3 py-2 border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-none bg-slate-50/60"
@@ -563,11 +563,11 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
                       setHasUnsavedChanges(true);
                       onMarkAllPresent(currentSessionId);
                     }}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200/80 text-xs font-bold rounded-xl transition-colors cursor-pointer"
-                    title="Tandai semua siswa yang belum diabsen menjadi Hadir"
+                    className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-xs transition-colors cursor-pointer"
+                    title="Set status semua siswa dalam pertemuan ini menjadi Masuk (Hadir)"
                   >
-                    <CheckCheck className="w-3.5 h-3.5 text-emerald-600" />
-                    <span>Semua Hadir</span>
+                    <CheckCheck className="w-4 h-4" />
+                    <span>Set Semua Masuk</span>
                   </button>
 
                   <button
@@ -595,7 +595,7 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
                     ? 'bg-amber-500 text-white border-amber-600 shadow-xs'
                     : 'bg-white hover:bg-slate-50 text-slate-700 border-slate-300'
                 }`}
-                title="Aktifkan mode edit cepat untuk mengubah NISN, Nama, dan Gender langsung di tabel"
+                title="Aktifkan mode edit cepat untuk mengubah nama siswa langsung di tabel"
               >
                 <Edit3 className="w-3.5 h-3.5" />
                 <span>{isQuickEditMode ? 'Tutup Edit Cepat' : 'Edit Cepat Siswa'}</span>
@@ -628,9 +628,8 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
                 <thead className="bg-slate-100/90 text-slate-700 font-bold uppercase tracking-wider text-[11px] border-b border-slate-200">
                   <tr>
                     <th className="py-3 px-3 w-12 text-center">No</th>
-                    <th className="py-3 px-3 w-28">NISN</th>
                     <th className="py-3 px-4">Nama Lengkap Siswa</th>
-                    <th className="py-3 px-3 w-32 text-center">Gender</th>
+                    <th className="py-3 px-3 w-24 text-center">Gender</th>
                     <th className="py-3 px-4 w-72 text-center">
                       Status Kehadiran <span className="text-[10px] text-slate-500 font-normal block">(Pilih Salah Satu)</span>
                     </th>
@@ -642,7 +641,7 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
                 <tbody className="divide-y divide-slate-100 text-slate-800">
                   {filteredStudents.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="text-center py-12 text-slate-400">
+                      <td colSpan={6} className="text-center py-12 text-slate-400">
                         {students.length === 0 ? (
                           <div className="space-y-3">
                             <p className="text-sm font-semibold text-slate-600">
@@ -686,29 +685,6 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
                             {student.no}
                           </td>
 
-                          {/* NISN */}
-                          <td className="py-3 px-3 font-mono text-[11px] text-slate-600">
-                            {isQuickEditMode ? (
-                              <input
-                                type="text"
-                                value={student.nisn}
-                                onChange={(e) =>
-                                  onUpdateStudentField?.(student.id, 'nisn', e.target.value)
-                                }
-                                placeholder="NISN..."
-                                className="w-full font-mono text-[11px] px-2 py-1 border border-amber-300 rounded bg-amber-50/50 focus:ring-1 focus:ring-amber-500 focus:outline-none"
-                              />
-                            ) : (
-                              <span
-                                onDoubleClick={() => onEditStudent(student)}
-                                title="Klik dua kali atau tombol Edit untuk mengubah NISN"
-                                className="cursor-pointer hover:text-indigo-600"
-                              >
-                                {student.nisn}
-                              </span>
-                            )}
-                          </td>
-
                           {/* Nama Lengkap */}
                           <td className="py-3 px-4">
                             {isQuickEditMode ? (
@@ -737,19 +713,14 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
                             )}
                           </td>
 
-                          {/* Gender - Interactive Click to Toggle */}
+                          {/* Gender - Read-only di bagian absen, edit hanya di menu Data Siswa */}
                           <td className="py-3 px-3 text-center">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                const nextGender = student.gender === 'L' ? 'P' : 'L';
-                                onUpdateStudentField?.(student.id, 'gender', nextGender);
-                              }}
-                              title="Klik untuk beralih Jenis Kelamin (Laki-laki ♂ / Perempuan ♀)"
-                              className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold border transition-all cursor-pointer hover:scale-105 ${
+                            <span
+                              title={`Jenis Kelamin: ${student.gender === 'L' ? 'Laki-laki (♂)' : 'Perempuan (♀)'} • Diedit hanya melalui menu Data Siswa`}
+                              className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold border select-none ${
                                 student.gender === 'L'
-                                  ? 'bg-blue-50 hover:bg-blue-100 text-blue-700 border-blue-200/90 shadow-2xs'
-                                  : 'bg-pink-50 hover:bg-pink-100 text-pink-700 border-pink-200/90 shadow-2xs'
+                                  ? 'bg-blue-50 text-blue-700 border-blue-200/90 shadow-2xs'
+                                  : 'bg-pink-50 text-pink-700 border-pink-200/90 shadow-2xs'
                               }`}
                             >
                               <span
@@ -760,7 +731,7 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
                                 {student.gender === 'L' ? '♂' : '♀'}
                               </span>
                               <span>{student.gender === 'L' ? 'L' : 'P'}</span>
-                            </button>
+                            </span>
                           </td>
 
                           {/* Attendance Status Selector Buttons (Pilih salah satu / Klik lagi untuk reset) */}
@@ -1110,7 +1081,6 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
               <thead className="bg-slate-100 text-slate-700 font-bold uppercase tracking-wider text-[11px] border-b border-slate-300">
                 <tr>
                   <th className="py-2.5 px-3 w-10 text-center border-r border-slate-200">No</th>
-                  <th className="py-2.5 px-3 w-24 border-r border-slate-200">NISN</th>
                   <th className="py-2.5 px-3 min-w-[180px] border-r border-slate-200">Nama Siswa</th>
                   <th className="py-2.5 px-2 w-12 text-center border-r border-slate-200">L/P</th>
 
@@ -1149,28 +1119,20 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
                       <td className="py-2 px-3 text-center font-mono text-slate-500 border-r border-slate-200">
                         {student.no}
                       </td>
-                      <td className="py-2 px-3 font-mono text-[11px] text-slate-600 border-r border-slate-200">
-                        {student.nisn}
-                      </td>
                       <td className="py-2 px-3 font-semibold text-slate-900 border-r border-slate-200">
                         {student.nama}
                       </td>
                       <td className="py-2 px-2 text-center border-r border-slate-200">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const nextGender = student.gender === 'L' ? 'P' : 'L';
-                            onUpdateStudentField?.(student.id, 'gender', nextGender);
-                          }}
-                          title="Klik untuk beralih Jenis Kelamin (L/P)"
-                          className={`w-6 h-6 rounded-md font-extrabold text-xs transition-colors cursor-pointer inline-flex items-center justify-center ${
+                        <span
+                          title={`Jenis Kelamin: ${student.gender === 'L' ? 'Laki-laki' : 'Perempuan'} (Edit di Data Siswa)`}
+                          className={`w-6 h-6 rounded-md font-extrabold text-xs inline-flex items-center justify-center select-none ${
                             student.gender === 'L'
-                              ? 'text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200'
-                              : 'text-pink-700 bg-pink-50 hover:bg-pink-100 border border-pink-200'
+                              ? 'text-blue-700 bg-blue-50 border border-blue-200'
+                              : 'text-pink-700 bg-pink-50 border border-pink-200'
                           }`}
                         >
                           {student.gender}
-                        </button>
+                        </span>
                       </td>
 
                       {/* Sessions cells */}

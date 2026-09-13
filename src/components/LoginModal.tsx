@@ -114,6 +114,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
       ...teacher,
       namaGuru: namaGuru.trim(),
       nip: nip.trim(),
+      nbm: nip.trim(),
       namaSekolah: namaSekolah.trim() || 'Sekolah',
       mataPelajaranUtama: mapel.trim() || 'Mata Pelajaran',
       tahunAjaran,
@@ -175,13 +176,13 @@ export const LoginModal: React.FC<LoginModalProps> = ({
 
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  NIP / NUPTK / Kode Guru
+                  NBM (Nomor Baku Muhammadiyah) / NIP Guru
                 </label>
                 <input
                   type="text"
                   value={nip}
                   onChange={(e) => setNip(e.target.value)}
-                  placeholder="Contoh: 19850714 201001 1 012"
+                  placeholder="Contoh: 1102.7909.1069421 atau NIP"
                   className="w-full text-sm px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none"
                 />
               </div>

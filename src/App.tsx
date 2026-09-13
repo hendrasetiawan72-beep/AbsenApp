@@ -28,6 +28,7 @@ import {
   AttendanceStatus,
   CalculatedGrade,
   TeachingAgenda,
+  GradeColumnHeader,
 } from './types';
 import { Storage } from './utils/storage';
 import { Navbar } from './components/Navbar';
@@ -514,9 +515,10 @@ export default function App() {
         if (ses.id !== sessionId) return ses;
         const newRecords = { ...ses.records };
         classStudents.forEach((std) => {
-          if (!newRecords[std.id] || !newRecords[std.id].status) {
-            newRecords[std.id] = { status: 'H', catatan: '' };
-          }
+          newRecords[std.id] = {
+            status: 'H',
+            catatan: newRecords[std.id]?.catatan || '',
+          };
         });
         return { ...ses, records: newRecords };
       });
@@ -524,7 +526,7 @@ export default function App() {
       return next;
     });
     showToast(
-      'Semua siswa ditandai Hadir. Klik tombol "Simpan Presensi ke Cloud (Save)" untuk menyimpan ke database.',
+      'Semua siswa berhasil diset Masuk (Hadir). Klik "Simpan Presensi ke Cloud (Save)" untuk menyimpan.',
       'info'
     );
   };
@@ -809,16 +811,54 @@ export default function App() {
       targetGrade = newGrade;
       return [...prev, newGrade];
     });
+  };
 
-    if (auth.currentUser && targetGrade) {
-      setIsCloudSaving(true);
-      try {
-        await FirestoreService.saveGrade(auth.currentUser.uid, targetGrade);
-      } catch (err: any) {
-        showToast('Gagal menyimpan nilai ke Cloud: ' + err.message, 'error');
-      } finally {
-        setIsCloudSaving(false);
-      }
+  // Dedicated Cloud Save Handler for Grades (user explicitly presses Save button)
+  const handleSaveGradesToCloud = async (
+    updatedGrades: StudentGrade[],
+    updatedHeaders: GradeColumnHeader[]
+  ) => {
+    // 1. Update allGrades state
+    setAllGrades((prev) => {
+      const otherClassGrades = prev.filter((g) => g.classId !== activeClassId);
+      const next = [...otherClassGrades, ...updatedGrades];
+      Storage.setAllGrades(next);
+      return next;
+    });
+
+    // 2. Save headers to local storage
+    Storage.setGradeHeaders(activeClassId, updatedHeaders);
+
+    // 3. Save to Cloud Firestore if logged in
+    if (!auth.currentUser) {
+      showToast(
+        'Data penilaian & keterangan kolom berhasil disimpan secara lokal.',
+        'info'
+      );
+      return;
+    }
+
+    setIsCloudSaving(true);
+    try {
+      await FirestoreService.saveGradesBatch(auth.currentUser.uid, updatedGrades);
+      await FirestoreService.saveGradeHeaders(
+        auth.currentUser.uid,
+        activeClassId,
+        updatedHeaders
+      );
+      showToast(
+        'Seluruh data penilaian & keterangan kolom berhasil disimpan ke Cloud Firestore!',
+        'success'
+      );
+    } catch (err: any) {
+      console.error('Error saving grades to Cloud Firestore:', err);
+      showToast(
+        'Gagal menyimpan penilaian ke Cloud: ' + (err.message || 'Periksa koneksi'),
+        'error'
+      );
+      throw err;
+    } finally {
+      setIsCloudSaving(false);
     }
   };
 
@@ -1011,6 +1051,10 @@ export default function App() {
             kkm={currentClass.kkm}
             className={currentClass.namaKelas}
             mataPelajaran={currentClass.mataPelajaran}
+            classId={activeClassId}
+            semester={teacher.semester}
+            academicYear={teacher.tahunAjaran}
+            onSaveGrades={handleSaveGradesToCloud}
             onUpdateGrade={handleUpdateGrade}
             onUpdateStudentField={handleUpdateStudentField}
             onEditStudent={(s) => {
