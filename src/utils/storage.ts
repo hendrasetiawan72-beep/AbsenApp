@@ -4,6 +4,7 @@ import {
   Student,
   AttendanceSession,
   StudentGrade,
+  TeachingAgenda,
 } from '../types';
 
 const STORAGE_KEYS = {
@@ -13,6 +14,7 @@ const STORAGE_KEYS = {
   STUDENTS: 'absensi_students',
   ATTENDANCE: 'absensi_sessions',
   GRADES: 'absensi_grades',
+  AGENDAS: 'absensi_teaching_agendas',
 };
 
 // Initial Empty Teacher Profile (Clean state for real authentication)
@@ -293,6 +295,25 @@ export const Storage = {
     return all.filter((g) => g.classId === classId);
   },
 
+  getAllAgendas(): TeachingAgenda[] {
+    try {
+      const data = localStorage.getItem(STORAGE_KEYS.AGENDAS);
+      if (!data) return [];
+      return JSON.parse(data);
+    } catch {
+      return [];
+    }
+  },
+
+  setAllAgendas(agendas: TeachingAgenda[]): void {
+    localStorage.setItem(STORAGE_KEYS.AGENDAS, JSON.stringify(agendas));
+  },
+
+  getAgendasByClass(classId: string): TeachingAgenda[] {
+    const all = this.getAllAgendas();
+    return all.filter((a) => a.classId === classId);
+  },
+
   // Reset to default demo data
   resetToDefault(): void {
     localStorage.setItem(STORAGE_KEYS.TEACHER, JSON.stringify(DEFAULT_TEACHER));
@@ -301,5 +322,6 @@ export const Storage = {
     localStorage.setItem(STORAGE_KEYS.STUDENTS, JSON.stringify(DEFAULT_STUDENTS_CLASS_1));
     localStorage.setItem(STORAGE_KEYS.ATTENDANCE, JSON.stringify(DEFAULT_SESSIONS_CLASS_1));
     localStorage.setItem(STORAGE_KEYS.GRADES, JSON.stringify(DEFAULT_GRADES_CLASS_1));
+    localStorage.removeItem(STORAGE_KEYS.AGENDAS);
   },
 };

@@ -93,6 +93,22 @@ export interface CalculatedGrade {
   sumatifAkhir?: number | null;
 }
 
+export interface TeachingAgenda {
+  id: string;
+  tanggal: string; // YYYY-MM-DD
+  hari?: string; // e.g. 'Senin'
+  jamKe: number[]; // e.g. [1, 2, 3]
+  jamRentang?: string; // e.g. '07:15 - 09:15'
+  classId: string;
+  className?: string;
+  materiAjar: string;
+  kegiatan: string;
+  catatan?: string;
+  jumlahHadir?: number;
+  jumlahTidakHadir?: number;
+  createdAt: string;
+}
+
 export interface TeacherWorkspaceData {
   teacherUid: string;
   email: string;
@@ -105,4 +121,4 @@ export interface TeacherWorkspaceData {
   updatedAt: string;
 }
 
-export type ActiveTab = 'absensi' | 'nilai' | 'statistik' | 'impor' | 'laporan-ortu' | 'workspace' | 'peta';
+export type ActiveTab = 'absensi' | 'nilai' | 'statistik' | 'agenda' | 'impor' | 'laporan-ortu' | 'workspace' | 'peta';

@@ -16,6 +16,7 @@ import {
   Student,
   AttendanceSession,
   StudentGrade,
+  TeachingAgenda,
 } from '../types';
 import { Storage } from '../utils/storage';
 
@@ -36,6 +37,7 @@ export interface UserWorkspaceData {
   students: Student[];
   sessions: AttendanceSession[];
   grades: StudentGrade[];
+  agendas?: TeachingAgenda[];
   isNewUser?: boolean;
 }
 
@@ -78,6 +80,11 @@ export const FirestoreService = {
       const gradesSnap = await getDocs(gradesColRef);
       const gradesData = gradesSnap.docs.map((d) => d.data() as StudentGrade);
 
+      // 6. Fetch Teaching Agendas
+      const agendasColRef = collection(db, 'users', uid, 'teaching_agendas');
+      const agendasSnap = await getDocs(agendasColRef);
+      const agendasData = agendasSnap.docs.map((d) => d.data() as TeachingAgenda);
+
       // Check if user has any existing classes in Firestore
       if (classesData.length === 0) {
         return {
@@ -96,6 +103,7 @@ export const FirestoreService = {
           students: [],
           sessions: [],
           grades: [],
+          agendas: agendasData,
           isNewUser: true,
         };
       }
@@ -120,6 +128,7 @@ export const FirestoreService = {
         students: studentsData,
         sessions: sessionsData,
         grades: gradesData,
+        agendas: agendasData,
         isNewUser: false,
       };
     } catch (error) {
@@ -342,6 +351,26 @@ export const FirestoreService = {
   },
 
   /**
+   * Save multiple Attendance Sessions in batch
+   */
+  async saveAttendanceSessionsBatch(
+    uid: string,
+    sessions: AttendanceSession[]
+  ): Promise<void> {
+    if (!sessions || sessions.length === 0) return;
+    const batch = writeBatch(db);
+    sessions.forEach((ses) => {
+      const docRef = doc(db, 'users', uid, 'attendance_sessions', ses.id);
+      batch.set(
+        docRef,
+        sanitizeForFirestore({ ...ses, teacherUid: uid }),
+        { merge: true }
+      );
+    });
+    await batch.commit();
+  },
+
+  /**
    * Delete an Attendance Session
    */
   async deleteAttendanceSession(
@@ -362,6 +391,26 @@ export const FirestoreService = {
       sanitizeForFirestore({ ...grade, teacherUid: uid }),
       { merge: true }
     );
+  },
+
+  /**
+   * Save or update Teaching Agenda
+   */
+  async saveAgenda(uid: string, agenda: TeachingAgenda): Promise<void> {
+    const docRef = doc(db, 'users', uid, 'teaching_agendas', agenda.id);
+    await setDoc(
+      docRef,
+      sanitizeForFirestore({ ...agenda, teacherUid: uid }),
+      { merge: true }
+    );
+  },
+
+  /**
+   * Delete Teaching Agenda
+   */
+  async deleteAgenda(uid: string, agendaId: string): Promise<void> {
+    const docRef = doc(db, 'users', uid, 'teaching_agendas', agendaId);
+    await deleteDoc(docRef);
   },
 
   /**

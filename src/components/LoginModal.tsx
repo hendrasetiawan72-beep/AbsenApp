@@ -9,19 +9,8 @@ import {
   Layers,
   Edit3,
   Check,
-  ShieldCheck,
-  MessageCircle,
-  Trash2,
-  ExternalLink,
 } from 'lucide-react';
 import { TeacherProfile, ClassRoom } from '../types';
-import {
-  getRegisteredEmails,
-  addRegisteredEmail,
-  removeRegisteredEmail,
-  DEFAULT_ADMIN_WHATSAPP,
-  DEFAULT_ADMIN_WHATSAPP_LINK,
-} from '../utils/whitelist';
 
 interface LoginModalProps {
   isOpen: boolean;
@@ -57,42 +46,9 @@ export const LoginModal: React.FC<LoginModalProps> = ({
   const [editClassMapel, setEditClassMapel] = useState('');
   const [editClassKkm, setEditClassKkm] = useState(75);
 
-  // Whitelist of registered Google emails
-  const [whitelistedEmails, setWhitelistedEmails] = useState<string[]>([]);
-  const [newTeacherEmail, setNewTeacherEmail] = useState('');
-  const [emailStatusMsg, setEmailStatusMsg] = useState<string | null>(null);
-
   useEffect(() => {
     setLocalClasses(classes);
   }, [classes, isOpen]);
-
-  useEffect(() => {
-    if (isOpen) {
-      setWhitelistedEmails(getRegisteredEmails());
-    }
-  }, [isOpen]);
-
-  const handleAddEmail = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newTeacherEmail.trim() || !newTeacherEmail.includes('@')) {
-      setEmailStatusMsg('Masukkan format email Google yang valid.');
-      return;
-    }
-    const updated = addRegisteredEmail(newTeacherEmail.trim());
-    setWhitelistedEmails(updated);
-    setEmailStatusMsg(`Email ${newTeacherEmail.trim()} berhasil didaftarkan ke sistem.`);
-    setNewTeacherEmail('');
-    setTimeout(() => setEmailStatusMsg(null), 3000);
-  };
-
-  const handleRemoveEmail = (emailToRemove: string) => {
-    if (emailToRemove === 'hendra.alkindi@gmail.com') {
-      alert('Email admin utama (hendra.alkindi@gmail.com) tidak dapat dihapus.');
-      return;
-    }
-    const updated = removeRegisteredEmail(emailToRemove);
-    setWhitelistedEmails(updated);
-  };
 
   if (!isOpen) return null;
 
@@ -428,88 +384,6 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                   </button>
                 </div>
               </div>
-            </div>
-          </div>
-
-          {/* Whitelist Google Accounts (Admin Management) */}
-          <div className="pt-2 border-t border-slate-200">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
-                <ShieldCheck className="w-4 h-4 text-emerald-600" />
-                Daftar Akun Google Yang Diizinkan (Whitelist)
-              </span>
-              <a
-                href={DEFAULT_ADMIN_WHATSAPP_LINK}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 px-2 py-0.5 rounded-md"
-              >
-                <MessageCircle className="w-3 h-3 text-emerald-600" />
-                <span>wa.me/{DEFAULT_ADMIN_WHATSAPP}</span>
-                <ExternalLink className="w-2.5 h-2.5 opacity-70" />
-              </a>
-            </div>
-
-            <p className="text-[11px] text-slate-500 mb-3">
-              Hanya akun Google yang terdaftar di bawah ini yang dapat masuk ke SIM Presensi SMK Muhammadiyah Bawang.
-            </p>
-
-            {emailStatusMsg && (
-              <div className="mb-2 p-2 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs">
-                {emailStatusMsg}
-              </div>
-            )}
-
-            {/* List of Allowed Emails */}
-            <div className="max-h-36 overflow-y-auto space-y-1.5 mb-3 pr-1">
-              {whitelistedEmails.map((wEmail) => {
-                const isAdmin = wEmail === 'hendra.alkindi@gmail.com';
-                return (
-                  <div
-                    key={wEmail}
-                    className="flex items-center justify-between px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs"
-                  >
-                    <div className="flex items-center gap-2 min-w-0">
-                      <div className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
-                      <span className="font-mono text-slate-800 truncate">{wEmail}</span>
-                      {isAdmin && (
-                        <span className="text-[10px] font-bold bg-indigo-100 text-indigo-700 px-1.5 py-0.2 rounded shrink-0">
-                          Admin Utama
-                        </span>
-                      )}
-                    </div>
-                    {!isAdmin && (
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveEmail(wEmail)}
-                        className="text-slate-400 hover:text-rose-600 p-1 rounded cursor-pointer shrink-0 ml-2"
-                        title="Hapus dari daftar izin"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-
-            {/* Form to Add New Email */}
-            <div className="flex gap-2">
-              <input
-                type="email"
-                placeholder="Tambah email Google baru (misal: guru@gmail.com)..."
-                value={newTeacherEmail}
-                onChange={(e) => setNewTeacherEmail(e.target.value)}
-                className="grow text-xs px-3 py-1.5 bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-emerald-500"
-              />
-              <button
-                type="button"
-                onClick={handleAddEmail}
-                className="inline-flex items-center gap-1 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-3 py-1.5 rounded-lg shadow-2xs transition-colors cursor-pointer shrink-0"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                <span>Daftarkan</span>
-              </button>
             </div>
           </div>
 

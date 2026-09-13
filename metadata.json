@@ -1,6 +1,6 @@
 {
   "name": "Aplikasi Absensi & Nilai Siswa",
-  "description": "Aplikasi absensi dan nilai siswa SMK Muhammadiyah Bawang berbasis spreadsheet dengan format laporan harian untuk orang tua yang bisa di-share ke WhatsApp, Google Workspace (Calendar, Tasks, Drive, Sheets, Docs, Gmail), Cloud SQL PostgreSQL, Firebase Firestore, Google Maps sebaran siswa, dan statistik rekap.",
+  "description": "Aplikasi absensi, agenda mengajar harian guru, dan rekap nilai siswa SMK Muhammadiyah Bawang dilengkapi unduh file dokumen Word, Excel, cetak PDF resmi, laporan harian orang tua via WhatsApp, Google Workspace, dan integrasi cloud.",
   "requestFramePermissions": ["geolocation"],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

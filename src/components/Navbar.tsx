@@ -207,6 +207,19 @@ export const Navbar: React.FC<NavbarProps> = ({
             </button>
 
             <button
+              id="tab-agenda"
+              onClick={() => onSelectTab('agenda')}
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-xl whitespace-nowrap transition-all cursor-pointer ${
+                activeTab === 'agenda'
+                  ? 'bg-indigo-600 text-white shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+              }`}
+            >
+              <BookOpen className="w-3.5 h-3.5" />
+              <span>Agenda Mengajar</span>
+            </button>
+
+            <button
               id="tab-nilai"
               onClick={() => onSelectTab('nilai')}
               className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-xl whitespace-nowrap transition-all cursor-pointer ${

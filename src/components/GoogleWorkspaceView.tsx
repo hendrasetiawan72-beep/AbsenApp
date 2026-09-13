@@ -574,8 +574,8 @@ export const GoogleWorkspaceView: React.FC<GoogleWorkspaceViewProps> = ({
 MAJELIS PENDIDIKAN DASAR DAN MENENGAH PIMPINAN DAERAH MUHAMMADIYAH BATANG
 SMK MUHAMMADIYAH BAWANG
 TERAKREDITASI "A"
-Alamat: Jl. Raya Bawang No. 12, Kec. Bawang, Kab. Batang, Jawa Tengah 51274
-Website: smkmuhbawang.sch.id | Email: info@smkmuhbawang.sch.id
+Alamat: Jl. Bawang-Sukorejo Km. 01, Desa Jlamprang, Kecamatan Bawang, Kabupaten Batang, Jawa Tengah 51274
+Website: www.smkmuhiba.sch.id | Email: info@smkmuhiba.sch.id
 ================================================================================
 
 LAPORAN REKAPITULASI PRESENSI & KEGIATAN BELAJAR MENGAJAR
@@ -606,7 +606,7 @@ Kepala SMK Muhammadiyah Bawang                Guru Mata Pelajaran
 
 
 
-.......................................       ${teacher.namaGuru}
+Imam Pamungkas, S.Pd., M.Si.                  ${teacher.namaGuru}
 NIP. -                                        NIP. ${teacher.nip || '-'}
 `;
       } else {
@@ -618,7 +618,8 @@ NIP. -                                        NIP. ${teacher.nip || '-'}
 MAJELIS PENDIDIKAN DASAR DAN MENENGAH PIMPINAN DAERAH MUHAMMADIYAH BATANG
 SMK MUHAMMADIYAH BAWANG
 TERAKREDITASI "A"
-Alamat: Jl. Raya Bawang No. 12, Kec. Bawang, Kab. Batang, Jawa Tengah 51274
+Alamat: Jl. Bawang-Sukorejo Km. 01, Desa Jlamprang, Kecamatan Bawang, Kabupaten Batang, Jawa Tengah 51274
+Website: www.smkmuhiba.sch.id | Email: info@smkmuhiba.sch.id
 ================================================================================
 
 Nomor       : 042/SP-BK/SMK-MB/${new Date().getFullYear()}

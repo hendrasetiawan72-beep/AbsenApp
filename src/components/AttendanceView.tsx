@@ -16,6 +16,7 @@ import {
   Cloud,
   ChevronDown,
   MessageSquare,
+  Save,
 } from 'lucide-react';
 import { Student, AttendanceSession, AttendanceStatus, Gender } from '../types';
 import { exportAttendanceToExcel } from '../utils/excel';
@@ -29,6 +30,8 @@ interface AttendanceViewProps {
   mataPelajaran: string;
   teacherName: string;
   schoolName?: string;
+  isCloudSaving?: boolean;
+  onSaveAttendanceToCloud?: (sessionId?: string) => Promise<boolean | void> | void;
   onUpdateStatus: (sessionId: string, studentId: string, status: AttendanceStatus) => void;
   onUpdateCatatan: (sessionId: string, studentId: string, catatan: string) => void;
   onMarkAllPresent: (sessionId: string) => void;
@@ -53,6 +56,8 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
   mataPelajaran,
   teacherName,
   schoolName = 'SMK Muhammadiyah Bawang',
+  isCloudSaving = false,
+  onSaveAttendanceToCloud,
   onUpdateStatus,
   onUpdateCatatan,
   onMarkAllPresent,
@@ -72,6 +77,11 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
   const [selectedSessionId, setSelectedSessionId] = useState<string>(
     sessions[sessions.length - 1]?.id || ''
   );
+
+  // Cloud Save States & UX feedback
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState<boolean>(false);
+  const [lastSavedTime, setLastSavedTime] = useState<string | null>(null);
+  const [isLocalSaving, setIsLocalSaving] = useState<boolean>(false);
 
   // WhatsApp Share Modal state
   const [showWhatsAppModal, setShowWhatsAppModal] = useState(false);
@@ -157,6 +167,29 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
 
   const handleExportExcel = () => {
     exportAttendanceToExcel(activeClassName, mataPelajaran, teacherName, students, sessions);
+  };
+
+  const handleSaveToCloud = async (targetSessionId?: string) => {
+    const idToSave = targetSessionId || currentSessionId;
+    if (!idToSave && viewMode !== 'matrix') return;
+    setIsLocalSaving(true);
+    try {
+      if (onSaveAttendanceToCloud) {
+        await onSaveAttendanceToCloud(idToSave);
+      }
+      setHasUnsavedChanges(false);
+      const timeStr =
+        new Date().toLocaleTimeString('id-ID', {
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit',
+        }) + ' WIB';
+      setLastSavedTime(timeStr);
+    } catch (err) {
+      console.error('Error saving attendance to cloud:', err);
+    } finally {
+      setIsLocalSaving(false);
+    }
   };
 
   return (
@@ -255,7 +288,10 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
                 <select
                   aria-label="Pilih Pertemuan"
                   value={currentSessionId}
-                  onChange={(e) => setSelectedSessionId(e.target.value)}
+                  onChange={(e) => {
+                    setSelectedSessionId(e.target.value);
+                    setHasUnsavedChanges(false);
+                  }}
                   className="text-xs font-bold bg-slate-100 hover:bg-slate-200/80 border border-slate-300/80 rounded-xl px-3 py-2 pr-7 focus:ring-2 focus:ring-indigo-500 focus:outline-none cursor-pointer transition-colors max-w-[170px] truncate"
                 >
                   {sessions.map((ses) => (
@@ -277,14 +313,45 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
               <span>+ Pertemuan</span>
             </button>
 
+            {/* Tombol Simpan Presensi ke Cloud (Save) di Top Bar */}
+            {activeSession && (
+              <button
+                type="button"
+                id="btn-top-save-attendance"
+                onClick={() => handleSaveToCloud()}
+                disabled={isLocalSaving || isCloudSaving}
+                className={`inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold rounded-xl shadow-xs transition-all cursor-pointer disabled:opacity-50 ${
+                  hasUnsavedChanges
+                    ? 'bg-emerald-600 hover:bg-emerald-700 text-white ring-2 ring-emerald-400/60'
+                    : 'bg-emerald-700 hover:bg-emerald-800 text-white'
+                }`}
+                title="Simpan Hasil Presensi ke Cloud Firestore"
+              >
+                {isLocalSaving || isCloudSaving ? (
+                  <>
+                    <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    <span>Menyimpan...</span>
+                  </>
+                ) : (
+                  <>
+                    <Save className="w-3.5 h-3.5 text-white" />
+                    <span>Simpan (Save)</span>
+                    {hasUnsavedChanges && (
+                      <span className="w-2 h-2 rounded-full bg-amber-300 ml-0.5 animate-ping" title="Ada perubahan belum tersimpan" />
+                    )}
+                  </>
+                )}
+              </button>
+            )}
+
             {activeSession && (
               <button
                 type="button"
                 onClick={() => setShowWhatsAppModal(true)}
-                className="inline-flex items-center gap-1.5 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-xs transition-all cursor-pointer"
+                className="inline-flex items-center gap-1.5 px-3 py-2 bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold rounded-xl shadow-xs transition-all cursor-pointer"
                 title="Kirim Rekap Absensi Pertemuan Ini ke WhatsApp"
               >
-                <Share2 className="w-3.5 h-3.5" />
+                <Share2 className="w-3.5 h-3.5 text-emerald-400" />
                 <span>Share WA</span>
               </button>
             )}
@@ -297,16 +364,16 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
                 title="Buka Format Laporan Harian untuk Orang Tua Siswa"
               >
                 <MessageSquare className="w-3.5 h-3.5 text-emerald-600" />
-                <span className="hidden md:inline">Laporan Ortu (WA)</span>
+                <span className="hidden md:inline">Laporan Ortu</span>
               </button>
             )}
 
             <button
               type="button"
               onClick={handleExportExcel}
-              className="inline-flex items-center gap-1.5 px-3 py-2 bg-slate-800 hover:bg-slate-900 text-white text-xs font-semibold rounded-xl shadow-xs transition-all cursor-pointer"
+              className="inline-flex items-center gap-1.5 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-xl border border-slate-200 shadow-xs transition-all cursor-pointer"
             >
-              <FileSpreadsheet className="w-3.5 h-3.5" />
+              <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-700" />
               <span className="hidden sm:inline">Excel</span>
             </button>
           </div>
@@ -492,7 +559,10 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
                 <>
                   <button
                     type="button"
-                    onClick={() => onMarkAllPresent(currentSessionId)}
+                    onClick={() => {
+                      setHasUnsavedChanges(true);
+                      onMarkAllPresent(currentSessionId);
+                    }}
                     className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200/80 text-xs font-bold rounded-xl transition-colors cursor-pointer"
                     title="Tandai semua siswa yang belum diabsen menjadi Hadir"
                   >
@@ -504,6 +574,7 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
                     type="button"
                     onClick={() => {
                       if (confirm('Reset status absensi pada pertemuan ini?')) {
+                        setHasUnsavedChanges(true);
                         onResetSession(currentSessionId);
                       }
                     }}
@@ -699,13 +770,14 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
                               <button
                                 type="button"
                                 title={currentStatus === 'H' ? 'Sudah Hadir (Klik untuk kosongkan)' : 'Tandai Hadir'}
-                                onClick={() =>
+                                onClick={() => {
+                                  setHasUnsavedChanges(true);
                                   onUpdateStatus(
                                     currentSessionId,
                                     student.id,
                                     currentStatus === 'H' ? ('' as AttendanceStatus) : 'H'
-                                  )
-                                }
+                                  );
+                                }}
                                 className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                                   currentStatus === 'H'
                                     ? 'bg-emerald-600 text-white shadow-xs scale-102 ring-2 ring-emerald-500/20'
@@ -719,13 +791,14 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
                               <button
                                 type="button"
                                 title={currentStatus === 'S' ? 'Sudah Sakit (Klik untuk kosongkan)' : 'Tandai Sakit'}
-                                onClick={() =>
+                                onClick={() => {
+                                  setHasUnsavedChanges(true);
                                   onUpdateStatus(
                                     currentSessionId,
                                     student.id,
                                     currentStatus === 'S' ? ('' as AttendanceStatus) : 'S'
-                                  )
-                                }
+                                  );
+                                }}
                                 className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                                   currentStatus === 'S'
                                     ? 'bg-blue-600 text-white shadow-xs scale-102 ring-2 ring-blue-500/20'
@@ -739,13 +812,14 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
                               <button
                                 type="button"
                                 title={currentStatus === 'I' ? 'Sudah Izin (Klik untuk kosongkan)' : 'Tandai Izin'}
-                                onClick={() =>
+                                onClick={() => {
+                                  setHasUnsavedChanges(true);
                                   onUpdateStatus(
                                     currentSessionId,
                                     student.id,
                                     currentStatus === 'I' ? ('' as AttendanceStatus) : 'I'
-                                  )
-                                }
+                                  );
+                                }}
                                 className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                                   currentStatus === 'I'
                                     ? 'bg-amber-500 text-white shadow-xs scale-102 ring-2 ring-amber-500/20'
@@ -759,13 +833,14 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
                               <button
                                 type="button"
                                 title={currentStatus === 'A' ? 'Sudah Alfa (Klik untuk kosongkan)' : 'Tandai Alfa'}
-                                onClick={() =>
+                                onClick={() => {
+                                  setHasUnsavedChanges(true);
                                   onUpdateStatus(
                                     currentSessionId,
                                     student.id,
                                     currentStatus === 'A' ? ('' as AttendanceStatus) : 'A'
-                                  )
-                                }
+                                  );
+                                }}
                                 className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                                   currentStatus === 'A'
                                     ? 'bg-rose-600 text-white shadow-xs scale-102 ring-2 ring-rose-500/20'
@@ -782,13 +857,14 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
                             <input
                               type="text"
                               value={currentCatatan}
-                              onChange={(e) =>
+                              onChange={(e) => {
+                                setHasUnsavedChanges(true);
                                 onUpdateCatatan(
                                   currentSessionId,
                                   student.id,
                                   e.target.value
-                                )
-                              }
+                                );
+                              }}
                               placeholder="Tambah catatan siswa..."
                               className={`w-full text-xs px-2.5 py-1.5 rounded-lg border transition-colors focus:ring-1 focus:outline-none ${
                                 currentCatatan
@@ -857,6 +933,128 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
               </div>
             </div>
           </div>
+
+          {/* ============================================================ */}
+          {/* SECTION AKHIR SETELAH MENGABSEN: TOMBOL SIMPAN KE CLOUD */}
+          {/* ============================================================ */}
+          {activeSession && (
+            <div
+              id="attendance-save-bar-bottom"
+              className="mt-6 p-5 sm:p-6 rounded-2xl bg-white border border-slate-200/90 shadow-sm transition-all"
+            >
+              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-5">
+                <div className="flex items-start gap-4">
+                  <div
+                    className={`w-12 h-12 sm:w-14 sm:h-14 rounded-2xl flex items-center justify-center shrink-0 border transition-all ${
+                      hasUnsavedChanges
+                        ? 'bg-amber-50 border-amber-300 text-amber-600 ring-4 ring-amber-50'
+                        : 'bg-emerald-50 border-emerald-300 text-emerald-600 ring-4 ring-emerald-50'
+                    }`}
+                  >
+                    {hasUnsavedChanges ? (
+                      <Cloud className="w-7 h-7 animate-pulse" />
+                    ) : (
+                      <CheckCircle className="w-7 h-7" />
+                    )}
+                  </div>
+
+                  <div>
+                    <div className="flex items-center gap-2.5 flex-wrap">
+                      <h3 className="font-extrabold text-slate-900 text-base sm:text-lg tracking-tight">
+                        Selesai Mengabsen Siswa Pertemuan Ke-{activeSession.pertemuanKe}?
+                      </h3>
+                      {hasUnsavedChanges ? (
+                        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-black bg-amber-100 text-amber-800 border border-amber-300 shadow-2xs">
+                          <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping"></span>
+                          Ada Perubahan Belum Disimpan ke Cloud
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 border border-emerald-300 shadow-2xs">
+                          <CheckCircle className="w-3.5 h-3.5 text-emerald-600" />
+                          Data Tersimpan di Cloud
+                        </span>
+                      )}
+                    </div>
+
+                    <p className="text-xs sm:text-sm text-slate-600 mt-1.5">
+                      Rekap Kehadiran: <b className="text-emerald-700">{hadirCount} Hadir</b>,{' '}
+                      <b className="text-blue-700">{sakitCount} Sakit</b>,{' '}
+                      <b className="text-amber-700">{izinCount} Izin</b>,{' '}
+                      <b className="text-rose-700">{alfaCount} Alfa</b>
+                      {unmarkedCount > 0 ? (
+                        <span className="text-amber-700 font-bold">
+                          {' '}
+                          • ({unmarkedCount} siswa belum diabsen)
+                        </span>
+                      ) : (
+                        <span className="text-emerald-700 font-bold">
+                          {' '}
+                          • (Lengkap! Semua {totalStudents} siswa telah diabsen)
+                        </span>
+                      )}
+                    </p>
+
+                    <div className="text-xs text-slate-500 mt-1.5 flex items-center gap-2 flex-wrap">
+                      <span>
+                        Tanggal: <b>{activeSession.tanggal}</b>
+                      </span>
+                      <span>•</span>
+                      <span>
+                        Topik/Materi: <b>{activeSession.topikMateri || 'Tanpa topik'}</b>
+                      </span>
+                      {lastSavedTime ? (
+                        <>
+                          <span>•</span>
+                          <span className="text-emerald-700 font-semibold">
+                            Terakhir disimpan: <b>{lastSavedTime}</b>
+                          </span>
+                        </>
+                      ) : (
+                        <>
+                          <span>•</span>
+                          <span className="text-slate-400">
+                            Klik tombol Save di samping agar data tersimpan aman di Cloud Firestore.
+                          </span>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-3 pt-3 lg:pt-0 border-t lg:border-t-0 border-slate-100">
+                  <button
+                    type="button"
+                    id="btn-save-attendance-bottom"
+                    onClick={() => handleSaveToCloud()}
+                    disabled={isLocalSaving || isCloudSaving}
+                    className="inline-flex items-center justify-center gap-2.5 px-6 py-3.5 bg-emerald-600 hover:bg-emerald-700 active:scale-98 text-white font-black text-sm rounded-xl shadow-md hover:shadow-lg transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {isLocalSaving || isCloudSaving ? (
+                      <>
+                        <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                        <span>Menyimpan ke Cloud Firestore...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Save className="w-5 h-5 text-white" />
+                        <span>Simpan Presensi ke Cloud (Save)</span>
+                      </>
+                    )}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setShowWhatsAppModal(true)}
+                    className="inline-flex items-center gap-2 px-4 py-3.5 bg-slate-100 hover:bg-emerald-50 text-slate-700 hover:text-emerald-800 border border-slate-200 hover:border-emerald-300 font-bold text-xs sm:text-sm rounded-xl transition-all cursor-pointer"
+                    title="Kirim Rekap Harian ke WhatsApp Orang Tua"
+                  >
+                    <Share2 className="w-4 h-4 text-emerald-600" />
+                    <span>Share WA</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -875,14 +1073,36 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
                 💡 Edit Manual Matriks: Klik langsung pada kotak status absensi siswa (P1, P2, dst.) untuk mengubah kehadiran (H → S → I → A → Reset). Klik L/P untuk mengubah jenis kelamin.
               </p>
             </div>
-            <button
-              type="button"
-              onClick={handleExportExcel}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-lg shadow-2xs transition-colors cursor-pointer"
-            >
-              <FileSpreadsheet className="w-3.5 h-3.5" />
-              <span>Download Excel Matriks</span>
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                id="btn-save-matrix-top"
+                onClick={() => handleSaveToCloud()}
+                disabled={isLocalSaving || isCloudSaving}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 active:scale-98 text-white text-xs font-bold rounded-xl shadow-xs transition-colors cursor-pointer disabled:opacity-50"
+              >
+                {isLocalSaving || isCloudSaving ? (
+                  <>
+                    <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    <span>Menyimpan...</span>
+                  </>
+                ) : (
+                  <>
+                    <Save className="w-3.5 h-3.5" />
+                    <span>Simpan ke Cloud (Save)</span>
+                  </>
+                )}
+              </button>
+
+              <button
+                type="button"
+                onClick={handleExportExcel}
+                className="inline-flex items-center gap-1.5 px-3 py-2 bg-slate-800 hover:bg-slate-900 text-white text-xs font-semibold rounded-xl shadow-2xs transition-colors cursor-pointer"
+              >
+                <FileSpreadsheet className="w-3.5 h-3.5" />
+                <span>Download Excel Matriks</span>
+              </button>
+            </div>
           </div>
 
           <div className="overflow-x-auto">
@@ -971,6 +1191,7 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
                             <button
                               type="button"
                               onClick={() => {
+                                setHasUnsavedChanges(true);
                                 let nextSt: AttendanceStatus = 'H';
                                 if (st === 'H') nextSt = 'S';
                                 else if (st === 'S') nextSt = 'I';
@@ -1013,6 +1234,71 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
               </tbody>
             </table>
           </div>
+
+          {/* Section Akhir Matriks: Simpan ke Cloud */}
+          <div className="p-4 sm:p-5 bg-slate-50 border-t border-slate-200 flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-lg bg-indigo-100 text-indigo-700 flex items-center justify-center shrink-0">
+                <Cloud className="w-4 h-4" />
+              </div>
+              <div>
+                <span className="text-xs font-bold text-slate-800 block">
+                  {hasUnsavedChanges
+                    ? 'Ada perubahan data matriks presensi yang belum disimpan ke Cloud.'
+                    : 'Seluruh rekap matriks pertemuan tersimpan di Cloud Firestore.'}
+                </span>
+                <span className="text-[11px] text-slate-500">
+                  {lastSavedTime
+                    ? `Terakhir disimpan: ${lastSavedTime}`
+                    : 'Klik tombol Simpan untuk menyimpan seluruh sesi pertemuan ke database Cloud.'}
+                </span>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              id="btn-save-matrix-bottom"
+              onClick={() => handleSaveToCloud()}
+              disabled={isLocalSaving || isCloudSaving}
+              className="inline-flex items-center gap-2 px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 active:scale-98 text-white text-xs font-bold rounded-xl shadow-xs transition-colors cursor-pointer disabled:opacity-50"
+            >
+              {isLocalSaving || isCloudSaving ? (
+                <>
+                  <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  <span>Menyimpan ke Cloud...</span>
+                </>
+              ) : (
+                <>
+                  <Save className="w-3.5 h-3.5" />
+                  <span>Simpan Rekap ke Cloud (Save)</span>
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Floating Save Reminder for long tables when user has made changes */}
+      {hasUnsavedChanges && (
+        <div className="fixed bottom-5 right-5 z-40 shadow-xl rounded-2xl bg-slate-900/95 text-white p-3 sm:px-4 sm:py-3 border border-slate-700 backdrop-blur-md flex items-center gap-3">
+          <div className="w-2.5 h-2.5 rounded-full bg-amber-400 animate-ping shrink-0" />
+          <div className="text-xs">
+            <span className="font-bold block text-slate-100">Presensi belum disimpan</span>
+            <span className="text-[11px] text-slate-400 hidden sm:inline">Klik Save agar data tersimpan di Cloud</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => handleSaveToCloud()}
+            disabled={isLocalSaving || isCloudSaving}
+            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-emerald-500 hover:bg-emerald-600 active:scale-95 text-white text-xs font-bold rounded-xl transition-all cursor-pointer shrink-0"
+          >
+            {isLocalSaving || isCloudSaving ? (
+              <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
+            ) : (
+              <Save className="w-3.5 h-3.5" />
+            )}
+            <span>Save ke Cloud</span>
+          </button>
         </div>
       )}
       {/* WhatsApp Share Modal */}
