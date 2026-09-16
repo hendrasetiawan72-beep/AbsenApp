@@ -52,85 +52,132 @@ export const FirestoreService = {
     }
 
     try {
-      // 1. Fetch Teacher Profile
+      // 1. References
       const teacherDocRef = doc(db, 'users', uid, 'profile', 'teacher');
-      const teacherSnap = await getDoc(teacherDocRef);
+      const classesColRef = collection(db, 'users', uid, 'classes');
+      const studentsColRef = collection(db, 'users', uid, 'students');
+      const sessionsColRef = collection(db, 'users', uid, 'attendance_sessions');
+      const gradesColRef = collection(db, 'users', uid, 'grades');
+      const agendasColRef = collection(db, 'users', uid, 'teaching_agendas');
+
+      // 2. Fetch all collections in parallel with individual error guards
+      const [teacherSnap, classesSnap, studentsSnap, sessionsSnap, gradesSnap, agendasSnap] =
+        await Promise.all([
+          getDoc(teacherDocRef).catch((e) => {
+            console.warn('[FirestoreService] getDoc teacher warning:', e?.message || e);
+            return { exists: () => false, data: () => null } as any;
+          }),
+          getDocs(classesColRef).catch((e) => {
+            console.warn('[FirestoreService] getDocs classes warning:', e?.message || e);
+            return { docs: [] } as any;
+          }),
+          getDocs(studentsColRef).catch((e) => {
+            console.warn('[FirestoreService] getDocs students warning:', e?.message || e);
+            return { docs: [] } as any;
+          }),
+          getDocs(sessionsColRef).catch((e) => {
+            console.warn('[FirestoreService] getDocs sessions warning:', e?.message || e);
+            return { docs: [] } as any;
+          }),
+          getDocs(gradesColRef).catch((e) => {
+            console.warn('[FirestoreService] getDocs grades warning:', e?.message || e);
+            return { docs: [] } as any;
+          }),
+          getDocs(agendasColRef).catch((e) => {
+            console.warn('[FirestoreService] getDocs agendas warning:', e?.message || e);
+            return { docs: [] } as any;
+          }),
+        ]);
+
       const teacherData = teacherSnap.exists()
         ? (teacherSnap.data() as TeacherProfile)
         : null;
+      const classesData = classesSnap.docs.map((d: any) => d.data() as ClassRoom);
+      const studentsData = studentsSnap.docs.map((d: any) => d.data() as Student);
+      const sessionsData = sessionsSnap.docs.map((d: any) => d.data() as AttendanceSession);
+      const gradesData = gradesSnap.docs.map((d: any) => d.data() as StudentGrade);
+      const agendasData = agendasSnap.docs.map((d: any) => d.data() as TeachingAgenda);
 
-      // 2. Fetch Classes
-      const classesColRef = collection(db, 'users', uid, 'classes');
-      const classesSnap = await getDocs(classesColRef);
-      const classesData = classesSnap.docs.map((d) => d.data() as ClassRoom);
+      // Check if user has classes in subcollections
+      if (classesData.length > 0) {
+        const activeClassId =
+          teacherData?.activeClassId || classesData[0]?.id || '';
 
-      // 3. Fetch Students
-      const studentsColRef = collection(db, 'users', uid, 'students');
-      const studentsSnap = await getDocs(studentsColRef);
-      const studentsData = studentsSnap.docs.map((d) => d.data() as Student);
-
-      // 4. Fetch Attendance Sessions
-      const sessionsColRef = collection(db, 'users', uid, 'attendance_sessions');
-      const sessionsSnap = await getDocs(sessionsColRef);
-      const sessionsData = sessionsSnap.docs.map(
-        (d) => d.data() as AttendanceSession
-      );
-
-      // 5. Fetch Grades
-      const gradesColRef = collection(db, 'users', uid, 'grades');
-      const gradesSnap = await getDocs(gradesColRef);
-      const gradesData = gradesSnap.docs.map((d) => d.data() as StudentGrade);
-
-      // 6. Fetch Teaching Agendas
-      const agendasColRef = collection(db, 'users', uid, 'teaching_agendas');
-      const agendasSnap = await getDocs(agendasColRef);
-      const agendasData = agendasSnap.docs.map((d) => d.data() as TeachingAgenda);
-
-      // Check if user has any existing classes in Firestore
-      if (classesData.length === 0) {
         return {
           teacher: teacherData || {
             id: 't-' + uid,
-            namaGuru: '',
+            namaGuru: 'Guru SMK',
             nip: '',
             namaSekolah: 'SMK Muhammadiyah Bawang',
-            mataPelajaranUtama: 'Informatika & Pemrograman',
+            mataPelajaranUtama: classesData[0]?.mataPelajaran || 'Informatika',
             tahunAjaran: '2025/2026',
             semester: 'Ganjil',
             isLoggedIn: true,
+            activeClassId,
           },
-          classes: [],
-          activeClassId: '',
-          students: [],
-          sessions: [],
-          grades: [],
+          classes: classesData,
+          activeClassId,
+          students: studentsData,
+          sessions: sessionsData,
+          grades: gradesData,
           agendas: agendasData,
-          isNewUser: true,
+          isNewUser: false,
         };
       }
 
-      const activeClassId =
-        teacherData?.activeClassId || classesData[0]?.id || '';
+      // 3. Fallback: Check unified snapshot in /teacher_workspaces/{uid}
+      try {
+        const wsRef = doc(db, 'teacher_workspaces', uid);
+        const wsSnap = await getDoc(wsRef);
+        if (wsSnap.exists()) {
+          const wsData = wsSnap.data() as any;
+          if (wsData && Array.isArray(wsData.classes) && wsData.classes.length > 0) {
+            console.log('[FirestoreService] Restored workspace from teacher_workspaces snapshot');
+            return {
+              teacher: wsData.teacher || teacherData || {
+                id: 't-' + uid,
+                namaGuru: wsData.email?.split('@')[0] || 'Guru SMK',
+                nip: '',
+                namaSekolah: 'SMK Muhammadiyah Bawang',
+                mataPelajaranUtama: wsData.classes[0]?.mataPelajaran || 'Informatika',
+                tahunAjaran: '2025/2026',
+                semester: 'Ganjil',
+                isLoggedIn: true,
+                activeClassId: wsData.activeClassId || wsData.classes[0]?.id || '',
+              },
+              classes: wsData.classes,
+              activeClassId: wsData.activeClassId || wsData.classes[0]?.id || '',
+              students: Array.isArray(wsData.students) ? wsData.students : [],
+              sessions: Array.isArray(wsData.sessions) ? wsData.sessions : [],
+              grades: Array.isArray(wsData.grades) ? wsData.grades : [],
+              agendas: agendasData,
+              isNewUser: false,
+            };
+          }
+        }
+      } catch (wsError) {
+        console.warn('[FirestoreService] teacher_workspaces fallback check warning:', wsError);
+      }
 
+      // 4. Truly new user or empty database
       return {
         teacher: teacherData || {
           id: 't-' + uid,
-          namaGuru: 'Guru SMK',
+          namaGuru: '',
           nip: '',
           namaSekolah: 'SMK Muhammadiyah Bawang',
-          mataPelajaranUtama: classesData[0]?.mataPelajaran || 'Informatika',
+          mataPelajaranUtama: 'Informatika & Pemrograman',
           tahunAjaran: '2025/2026',
           semester: 'Ganjil',
           isLoggedIn: true,
-          activeClassId,
         },
-        classes: classesData,
-        activeClassId,
-        students: studentsData,
-        sessions: sessionsData,
-        grades: gradesData,
+        classes: [],
+        activeClassId: '',
+        students: [],
+        sessions: [],
+        grades: [],
         agendas: agendasData,
-        isNewUser: false,
+        isNewUser: true,
       };
     } catch (error) {
       console.error('[FirestoreService] Error loading user data:', error);

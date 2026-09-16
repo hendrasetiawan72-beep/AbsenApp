@@ -86,9 +86,25 @@
         "activeClassId": { "type": "string", "maxLength": 128 }
       },
       "required": ["namaGuru", "namaSekolah"]
+    },
+    "TeacherWorkspace": {
+      "title": "TeacherWorkspace",
+      "description": "Data snapshot workspace guru lintas perangkat",
+      "type": "object",
+      "properties": {
+        "teacherUid": { "type": "string", "maxLength": 128 },
+        "email": { "type": "string", "maxLength": 150 },
+        "activeClassId": { "type": "string", "maxLength": 128 },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["teacherUid"]
     }
   },
   "firestore": {
+    "/teacher_workspaces/{teacherUid}": {
+      "schema": "TeacherWorkspace",
+      "description": "Sinkronisasi workspace guru lintas perangkat"
+    },
     "/users/{userId}/profile/{profileId}": {
       "schema": "TeacherProfile",
       "description": "Profil guru terisolasi per akun user"
@@ -108,6 +124,10 @@
     "/users/{userId}/grades/{gradeId}": {
       "schema": "StudentGrade",
       "description": "Daftar nilai asesmen siswa terisolasi per akun guru"
+    },
+    "/users/{userId}/teaching_agendas/{agendaId}": {
+      "schema": "AttendanceSession",
+      "description": "Catatan agenda mengajar guru terisolasi"
     },
     "/classes/{classId}": {
       "schema": "ClassRoom",

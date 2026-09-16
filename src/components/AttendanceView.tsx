@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   Calendar,
   CheckCircle,
@@ -17,10 +17,118 @@ import {
   ChevronDown,
   MessageSquare,
   Save,
+  Filter,
+  AlertTriangle,
+  Layers,
+  BarChart3,
+  Eye,
+  Check,
+  X,
 } from 'lucide-react';
 import { Student, AttendanceSession, AttendanceStatus, Gender } from '../types';
 import { exportAttendanceToExcel } from '../utils/excel';
 import { WhatsAppShareModal } from './WhatsAppShareModal';
+
+const monthNamesIndo = [
+  'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
+  'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'
+];
+
+const parseDateToMonthInfo = (dateStr: string) => {
+  if (!dateStr) {
+    return { key: 'unknown', year: 0, monthNum: 0, monthName: 'Lainnya', label: 'Lainnya' };
+  }
+  if (dateStr.includes('-')) {
+    const parts = dateStr.split('-');
+    if (parts.length >= 2) {
+      const year = parseInt(parts[0], 10);
+      const monthNum = parseInt(parts[1], 10);
+      if (!isNaN(monthNum) && monthNum >= 1 && monthNum <= 12) {
+        const y = isNaN(year) ? new Date().getFullYear() : year;
+        return {
+          key: `${y}-${String(monthNum).padStart(2, '0')}`,
+          year: y,
+          monthNum,
+          monthName: monthNamesIndo[monthNum - 1],
+          label: `${monthNamesIndo[monthNum - 1]} ${y > 0 ? y : ''}`.trim(),
+        };
+      }
+    }
+  }
+  return { key: 'unknown', year: 0, monthNum: 0, monthName: 'Lainnya', label: 'Lainnya' };
+};
+
+const formatSessionDate = (dateStr: string) => {
+  if (!dateStr) return '-';
+  const parts = dateStr.split('-');
+  if (parts.length === 3) {
+    const day = parts[2];
+    const monthIndex = parseInt(parts[1], 10) - 1;
+    const shortMonths = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
+    if (monthIndex >= 0 && monthIndex < 12) {
+      return `${parseInt(day, 10)} ${shortMonths[monthIndex]}`;
+    }
+    return `${day}/${parts[1]}`;
+  }
+  return dateStr;
+};
+
+const MONTH_THEMES = [
+  {
+    headerBg: 'bg-indigo-50 border-indigo-200 text-indigo-950',
+    subHeaderBg: 'bg-indigo-50/40 text-indigo-900',
+    titleText: 'text-indigo-900',
+    borderSep: 'border-r-2 border-indigo-300',
+    badge: 'bg-indigo-600 text-white',
+    accentText: 'text-indigo-700',
+    tabActive: 'bg-indigo-600 text-white shadow-xs',
+  },
+  {
+    headerBg: 'bg-sky-50 border-sky-200 text-sky-950',
+    subHeaderBg: 'bg-sky-50/40 text-sky-900',
+    titleText: 'text-sky-900',
+    borderSep: 'border-r-2 border-sky-300',
+    badge: 'bg-sky-600 text-white',
+    accentText: 'text-sky-700',
+    tabActive: 'bg-sky-600 text-white shadow-xs',
+  },
+  {
+    headerBg: 'bg-violet-50 border-violet-200 text-violet-950',
+    subHeaderBg: 'bg-violet-50/40 text-violet-900',
+    titleText: 'text-violet-900',
+    borderSep: 'border-r-2 border-violet-300',
+    badge: 'bg-violet-600 text-white',
+    accentText: 'text-violet-700',
+    tabActive: 'bg-violet-600 text-white shadow-xs',
+  },
+  {
+    headerBg: 'bg-emerald-50 border-emerald-200 text-emerald-950',
+    subHeaderBg: 'bg-emerald-50/40 text-emerald-900',
+    titleText: 'text-emerald-900',
+    borderSep: 'border-r-2 border-emerald-300',
+    badge: 'bg-emerald-600 text-white',
+    accentText: 'text-emerald-700',
+    tabActive: 'bg-emerald-600 text-white shadow-xs',
+  },
+  {
+    headerBg: 'bg-amber-50 border-amber-200 text-amber-950',
+    subHeaderBg: 'bg-amber-50/40 text-amber-900',
+    titleText: 'text-amber-900',
+    borderSep: 'border-r-2 border-amber-300',
+    badge: 'bg-amber-600 text-white',
+    accentText: 'text-amber-700',
+    tabActive: 'bg-amber-600 text-white shadow-xs',
+  },
+  {
+    headerBg: 'bg-rose-50 border-rose-200 text-rose-950',
+    subHeaderBg: 'bg-rose-50/40 text-rose-900',
+    titleText: 'text-rose-900',
+    borderSep: 'border-r-2 border-rose-300',
+    badge: 'bg-rose-600 text-white',
+    accentText: 'text-rose-700',
+    tabActive: 'bg-rose-600 text-white shadow-xs',
+  },
+];
 
 interface AttendanceViewProps {
   students: Student[];
@@ -101,6 +209,203 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
   // Matrix View vs Single Session View
   const [viewMode, setViewMode] = useState<'single' | 'matrix'>('single');
   const [isQuickEditMode, setIsQuickEditMode] = useState(false);
+
+  // Matrix View Month Grouping & Detection states
+  const [selectedMonthFilter, setSelectedMonthFilter] = useState<string>('all');
+  const [showMonthSubtotals, setShowMonthSubtotals] = useState<boolean>(true);
+  const [matrixAbsenceFilter, setMatrixAbsenceFilter] = useState<'all' | 'alfa' | 'absence' | 'risk'>('all');
+  const [matrixSearchQuery, setMatrixSearchQuery] = useState<string>('');
+
+  // Group all sessions chronologically by month
+  const monthGroups = useMemo(() => {
+    const map = new Map<
+      string,
+      {
+        key: string;
+        year: number;
+        monthNum: number;
+        monthName: string;
+        label: string;
+        sessions: AttendanceSession[];
+      }
+    >();
+
+    // Sort sessions chronologically by date and pertemuanKe
+    const sortedSessions = [...sessions].sort((a, b) => {
+      if (a.tanggal !== b.tanggal) return a.tanggal.localeCompare(b.tanggal);
+      return a.pertemuanKe - b.pertemuanKe;
+    });
+
+    sortedSessions.forEach((ses) => {
+      const info = parseDateToMonthInfo(ses.tanggal);
+      if (!map.has(info.key)) {
+        map.set(info.key, {
+          key: info.key,
+          year: info.year,
+          monthNum: info.monthNum,
+          monthName: info.monthName,
+          label: info.label,
+          sessions: [],
+        });
+      }
+      map.get(info.key)!.sessions.push(ses);
+    });
+
+    return Array.from(map.values()).map((g) => {
+      let totalH = 0;
+      let totalS = 0;
+      let totalI = 0;
+      let totalA = 0;
+      const studentsWithAlfa: { student: Student; count: number }[] = [];
+      const studentsWithAbsence: { student: Student; h: number; s: number; i: number; a: number }[] = [];
+
+      students.forEach((std) => {
+        let stdH = 0;
+        let stdS = 0;
+        let stdI = 0;
+        let stdA = 0;
+
+        g.sessions.forEach((ses) => {
+          const rec = ses.records[std.id]?.status;
+          if (rec === 'H') stdH++;
+          else if (rec === 'S') stdS++;
+          else if (rec === 'I') stdI++;
+          else if (rec === 'A') stdA++;
+        });
+
+        totalH += stdH;
+        totalS += stdS;
+        totalI += stdI;
+        totalA += stdA;
+
+        if (stdA > 0) {
+          studentsWithAlfa.push({ student: std, count: stdA });
+        }
+        if (stdS > 0 || stdI > 0 || stdA > 0) {
+          studentsWithAbsence.push({ student: std, h: stdH, s: stdS, i: stdI, a: stdA });
+        }
+      });
+
+      const totalCheck = totalH + totalS + totalI + totalA;
+      const percent = totalCheck > 0 ? Math.round((totalH / totalCheck) * 100) : 100;
+
+      return {
+        ...g,
+        stats: {
+          totalH,
+          totalS,
+          totalI,
+          totalA,
+          totalCheck,
+          percent,
+          studentsWithAlfa,
+          studentsWithAbsence,
+        },
+      };
+    });
+  }, [sessions, students]);
+
+  // Filtered month groups to display in matrix table
+  const displayedMonthGroups = useMemo(() => {
+    if (selectedMonthFilter === 'all') {
+      return monthGroups;
+    }
+    return monthGroups.filter((g) => g.key === selectedMonthFilter);
+  }, [monthGroups, selectedMonthFilter]);
+
+  // Summary statistics for the currently displayed month groups
+  const activeDisplayedStats = useMemo(() => {
+    let totalH = 0;
+    let totalS = 0;
+    let totalI = 0;
+    let totalA = 0;
+    const studentsWithAlfaMap = new Map<string, { student: Student; count: number }>();
+    const studentsWithAbsenceMap = new Map<string, { student: Student; count: number }>();
+
+    displayedMonthGroups.forEach((g) => {
+      totalH += g.stats.totalH;
+      totalS += g.stats.totalS;
+      totalI += g.stats.totalI;
+      totalA += g.stats.totalA;
+
+      g.stats.studentsWithAlfa.forEach(({ student, count }) => {
+        const prev = studentsWithAlfaMap.get(student.id);
+        if (prev) {
+          prev.count += count;
+        } else {
+          studentsWithAlfaMap.set(student.id, { student, count });
+        }
+      });
+
+      g.stats.studentsWithAbsence.forEach(({ student, s, i, a }) => {
+        const totalAbs = s + i + a;
+        const prev = studentsWithAbsenceMap.get(student.id);
+        if (prev) {
+          prev.count += totalAbs;
+        } else {
+          studentsWithAbsenceMap.set(student.id, { student, count: totalAbs });
+        }
+      });
+    });
+
+    const totalCheck = totalH + totalS + totalI + totalA;
+    const percent = totalCheck > 0 ? Math.round((totalH / totalCheck) * 100) : 100;
+
+    return {
+      totalH,
+      totalS,
+      totalI,
+      totalA,
+      totalCheck,
+      percent,
+      studentsWithAlfa: Array.from(studentsWithAlfaMap.values()),
+      studentsWithAbsence: Array.from(studentsWithAbsenceMap.values()),
+    };
+  }, [displayedMonthGroups]);
+
+  // Filter students displayed in the matrix table
+  const filteredMatrixStudents = useMemo(() => {
+    return students.filter((std) => {
+      // 1. Search Query
+      if (matrixSearchQuery.trim()) {
+        const q = matrixSearchQuery.toLowerCase();
+        const matchName = std.nama.toLowerCase().includes(q);
+        const matchNis = std.nisn.toLowerCase().includes(q);
+        if (!matchName && !matchNis) return false;
+      }
+
+      // 2. Absence / Alfa Filter for displayed groups
+      let stdH = 0;
+      let stdS = 0;
+      let stdI = 0;
+      let stdA = 0;
+      let totalSes = 0;
+
+      displayedMonthGroups.forEach((g) => {
+        g.sessions.forEach((ses) => {
+          totalSes++;
+          const rec = ses.records[std.id]?.status;
+          if (rec === 'H') stdH++;
+          else if (rec === 'S') stdS++;
+          else if (rec === 'I') stdI++;
+          else if (rec === 'A') stdA++;
+        });
+      });
+
+      if (matrixAbsenceFilter === 'alfa') {
+        return stdA > 0;
+      }
+      if (matrixAbsenceFilter === 'absence') {
+        return stdS + stdI + stdA > 0;
+      }
+      if (matrixAbsenceFilter === 'risk') {
+        const pct = totalSes > 0 ? (stdH / totalSes) * 100 : 100;
+        return pct < 80 || stdA >= 2;
+      }
+
+      return true;
+    });
+  }, [students, matrixSearchQuery, displayedMonthGroups, matrixAbsenceFilter]);
 
   // Active current session object
   const activeSession =
@@ -1029,28 +1334,35 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
         </div>
       )}
 
-      {/* MATRIX VIEW (ALL SESSIONS SPREADSHEET TABLE) */}
+      {/* MATRIX VIEW (ALL SESSIONS SPREADSHEET TABLE GROUPED BY MONTH) */}
       {viewMode === 'matrix' && (
-        <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-xs">
-          <div className="p-4 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3 bg-slate-50/80">
+        <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-xs space-y-0">
+          {/* Top Bar Matrix */}
+          <div className="p-4 sm:p-5 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3 bg-slate-50/90">
             <div>
-              <h3 className="font-bold text-slate-900 text-sm">
-                Rekap Matriks Seluruh Pertemuan ({sessions.length} Sesi Terjadwal)
+              <div className="flex items-center gap-2 mb-1">
+                <span className="px-2.5 py-0.5 rounded-md text-[11px] font-black uppercase tracking-wider bg-indigo-100 text-indigo-800 border border-indigo-200">
+                  Rekap Matriks Presensi
+                </span>
+                <span className="text-xs font-bold text-slate-500">
+                  {monthGroups.length} Bulan • {sessions.length} Sesi Pertemuan
+                </span>
+              </div>
+              <h3 className="font-extrabold text-slate-900 text-base">
+                Matriks Presensi Siswa Terkelompok per Bulan
               </h3>
-              <p className="text-xs text-slate-500">
-                Tampilan format spreadsheet penuh memperlihatkan kehadiran tiap pertemuan serta persentase total
-              </p>
-              <p className="text-[11px] text-indigo-600 font-semibold mt-1">
-                💡 Edit Manual Matriks: Klik langsung pada kotak status absensi siswa (P1, P2, dst.) untuk mengubah kehadiran (H → S → I → A → Reset). Klik L/P untuk mengubah jenis kelamin.
+              <p className="text-xs text-slate-500 mt-0.5">
+                Pertemuan dikelompokkan berdasarkan bulan kalender untuk mendeteksi ketidakhadiran (Hadir, Sakit, Izin, Alfa) siswa secara cepat.
               </p>
             </div>
-            <div className="flex items-center gap-2">
+
+            <div className="flex flex-wrap items-center gap-2">
               <button
                 type="button"
                 id="btn-save-matrix-top"
                 onClick={() => handleSaveToCloud()}
                 disabled={isLocalSaving || isCloudSaving}
-                className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 active:scale-98 text-white text-xs font-bold rounded-xl shadow-xs transition-colors cursor-pointer disabled:opacity-50"
+                className="inline-flex items-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 active:scale-98 text-white text-xs font-bold rounded-xl shadow-xs transition-colors cursor-pointer disabled:opacity-50"
               >
                 {isLocalSaving || isCloudSaving ? (
                   <>
@@ -1068,7 +1380,8 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
               <button
                 type="button"
                 onClick={handleExportExcel}
-                className="inline-flex items-center gap-1.5 px-3 py-2 bg-slate-800 hover:bg-slate-900 text-white text-xs font-semibold rounded-xl shadow-2xs transition-colors cursor-pointer"
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold rounded-xl shadow-2xs transition-colors cursor-pointer"
+                title="Download spreadsheet matriks absensi lengkap dengan pemisahan bulan"
               >
                 <FileSpreadsheet className="w-3.5 h-3.5" />
                 <span>Download Excel Matriks</span>
@@ -1076,124 +1389,715 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
             </div>
           </div>
 
-          <div className="overflow-x-auto">
+          {/* Month Tabs Navigator & Quick Filters */}
+          <div className="p-4 border-b border-slate-200 bg-white">
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+              {/* Month Tabs */}
+              <div className="flex items-center gap-1.5 overflow-x-auto pb-1 lg:pb-0 scrollbar-thin">
+                <span className="text-[11px] font-bold text-slate-500 mr-1 flex items-center gap-1 shrink-0">
+                  <Calendar className="w-3.5 h-3.5 text-indigo-600" />
+                  Bulan:
+                </span>
+
+                {/* All Months Tab */}
+                <button
+                  type="button"
+                  onClick={() => setSelectedMonthFilter('all')}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer shrink-0 inline-flex items-center gap-1.5 ${
+                    selectedMonthFilter === 'all'
+                      ? 'bg-indigo-600 text-white shadow-xs'
+                      : 'bg-slate-100 hover:bg-slate-200/80 text-slate-700'
+                  }`}
+                >
+                  <Layers className="w-3.5 h-3.5" />
+                  <span>Semua Bulan</span>
+                  <span
+                    className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+                      selectedMonthFilter === 'all'
+                        ? 'bg-indigo-700 text-white'
+                        : 'bg-slate-200 text-slate-700'
+                    }`}
+                  >
+                    {sessions.length} P
+                  </span>
+                </button>
+
+                {/* Individual Month Tabs */}
+                {monthGroups.map((group, idx) => {
+                  const isActive = selectedMonthFilter === group.key;
+                  const theme = MONTH_THEMES[idx % MONTH_THEMES.length];
+                  const hasAlfa = group.stats.totalA > 0;
+                  const hasAbsence = group.stats.totalS > 0 || group.stats.totalI > 0;
+
+                  return (
+                    <button
+                      key={group.key}
+                      type="button"
+                      onClick={() => setSelectedMonthFilter(group.key)}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer shrink-0 inline-flex items-center gap-1.5 border ${
+                        isActive
+                          ? `${theme.tabActive} border-transparent`
+                          : 'bg-white hover:bg-slate-50 text-slate-700 border-slate-200'
+                      }`}
+                    >
+                      <span>{group.monthName}</span>
+                      <span
+                        className={`text-[10px] px-1.5 py-0.2 rounded-full font-semibold ${
+                          isActive
+                            ? 'bg-black/20 text-white'
+                            : 'bg-slate-100 text-slate-600'
+                        }`}
+                      >
+                        {group.sessions.length} P
+                      </span>
+
+                      {/* Warning pill if has Alfa in this month */}
+                      {hasAlfa && (
+                        <span
+                          className="px-1.5 py-0.2 text-[10px] rounded-full font-extrabold bg-rose-500 text-white shrink-0"
+                          title={`${group.stats.totalA} kasus Alfa di bulan ${group.monthName}`}
+                        >
+                          {group.stats.totalA} Alfa
+                        </span>
+                      )}
+                      {!hasAlfa && hasAbsence && (
+                        <span
+                          className={`px-1.5 py-0.2 text-[10px] rounded-full font-medium ${
+                            isActive
+                              ? 'bg-white/20 text-white'
+                              : 'bg-amber-100 text-amber-800'
+                          }`}
+                          title={`${group.stats.totalS + group.stats.totalI} Sakit/Izin`}
+                        >
+                          {group.stats.totalS + group.stats.totalI} S/I
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Subtotal Toggle & Quick Detection Stats */}
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setShowMonthSubtotals((prev) => !prev)}
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border transition-colors cursor-pointer ${
+                    showMonthSubtotals
+                      ? 'bg-indigo-50 border-indigo-200 text-indigo-800 shadow-2xs'
+                      : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                  }`}
+                  title="Tampilkan kolom rekap Hadir, Sakit, Izin, Alfa untuk setiap bulan"
+                >
+                  <BarChart3 className="w-3.5 h-3.5 text-indigo-600" />
+                  <span>Subtotal Bulanan (H/S/I/A)</span>
+                  <span
+                    className={`w-4 h-4 rounded-full text-[10px] font-black inline-flex items-center justify-center ${
+                      showMonthSubtotals
+                        ? 'bg-indigo-600 text-white'
+                        : 'bg-slate-200 text-slate-500'
+                    }`}
+                  >
+                    {showMonthSubtotals ? '✓' : 'off'}
+                  </span>
+                </button>
+              </div>
+            </div>
+
+            {/* Quick Absence Detection Callout Strip */}
+            <div className="mt-3 pt-3 border-t border-slate-100 flex flex-col md:flex-row md:items-center justify-between gap-3">
+              {/* Detection Metrics for Current Selection */}
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-xs font-bold text-slate-500">
+                  Ringkasan{' '}
+                  {selectedMonthFilter === 'all'
+                    ? 'Semua Bulan'
+                    : monthGroups.find((g) => g.key === selectedMonthFilter)?.label || 'Bulan Ini'}
+                  :
+                </span>
+
+                <div className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-800 border border-emerald-200 text-xs font-bold">
+                  <span>Hadir (H):</span>
+                  <span className="font-extrabold">{activeDisplayedStats.totalH}</span>
+                  <span className="text-[10px] opacity-75">({activeDisplayedStats.percent}%)</span>
+                </div>
+
+                <div className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-blue-50 text-blue-800 border border-blue-200 text-xs font-bold">
+                  <span>Sakit (S):</span>
+                  <span className="font-extrabold">{activeDisplayedStats.totalS}</span>
+                </div>
+
+                <div className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-50 text-amber-800 border border-amber-200 text-xs font-bold">
+                  <span>Izin (I):</span>
+                  <span className="font-extrabold">{activeDisplayedStats.totalI}</span>
+                </div>
+
+                <div
+                  className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-extrabold border ${
+                    activeDisplayedStats.totalA > 0
+                      ? 'bg-rose-100 text-rose-800 border-rose-300 ring-2 ring-rose-200'
+                      : 'bg-slate-100 text-slate-600 border-slate-200'
+                  }`}
+                >
+                  <AlertTriangle
+                    className={`w-3.5 h-3.5 ${
+                      activeDisplayedStats.totalA > 0 ? 'text-rose-600' : 'text-slate-400'
+                    }`}
+                  />
+                  <span>Alfa (A):</span>
+                  <span>{activeDisplayedStats.totalA}</span>
+                </div>
+              </div>
+
+              {/* Student Filter Toolbar */}
+              <div className="flex items-center gap-2 flex-wrap">
+                {/* Search in matrix */}
+                <div className="relative">
+                  <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <input
+                    type="text"
+                    value={matrixSearchQuery}
+                    onChange={(e) => setMatrixSearchQuery(e.target.value)}
+                    placeholder="Cari siswa di matriks..."
+                    className="pl-8 pr-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 w-44 lg:w-52"
+                  />
+                  {matrixSearchQuery && (
+                    <button
+                      type="button"
+                      onClick={() => setMatrixSearchQuery('')}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  )}
+                </div>
+
+                {/* Absence filter chips */}
+                <div className="inline-flex rounded-xl p-0.5 bg-slate-100 border border-slate-200 text-xs">
+                  <button
+                    type="button"
+                    onClick={() => setMatrixAbsenceFilter('all')}
+                    className={`px-2.5 py-1 rounded-lg font-bold transition-all cursor-pointer ${
+                      matrixAbsenceFilter === 'all'
+                        ? 'bg-white text-slate-900 shadow-2xs'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    Semua ({students.length})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setMatrixAbsenceFilter('alfa')}
+                    className={`px-2.5 py-1 rounded-lg font-bold transition-all cursor-pointer flex items-center gap-1 ${
+                      matrixAbsenceFilter === 'alfa'
+                        ? 'bg-rose-600 text-white shadow-2xs'
+                        : 'text-rose-700 hover:bg-rose-50'
+                    }`}
+                    title="Hanya tampilkan siswa yang tercatat Alfa"
+                  >
+                    <span>Ada Alfa</span>
+                    <span className="text-[10px] px-1 rounded-full bg-rose-200/50">
+                      {activeDisplayedStats.studentsWithAlfa.length}
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setMatrixAbsenceFilter('absence')}
+                    className={`px-2.5 py-1 rounded-lg font-bold transition-all cursor-pointer ${
+                      matrixAbsenceFilter === 'absence'
+                        ? 'bg-amber-500 text-white shadow-2xs'
+                        : 'text-amber-800 hover:bg-amber-50'
+                    }`}
+                    title="Hanya tampilkan siswa yang pernah tidak hadir (Sakit, Izin, atau Alfa)"
+                  >
+                    Pernah Absen ({activeDisplayedStats.studentsWithAbsence.length})
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Alfa Detection Alert Notice */}
+            {activeDisplayedStats.studentsWithAlfa.length > 0 && matrixAbsenceFilter !== 'alfa' && (
+              <div className="mt-2.5 p-2.5 rounded-xl bg-rose-50/90 border border-rose-200 flex flex-wrap items-center justify-between gap-2 text-xs">
+                <div className="flex items-center gap-2">
+                  <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+                  <span className="font-bold text-rose-900">
+                    Terdeteksi {activeDisplayedStats.studentsWithAlfa.length} siswa memiliki catatan Alfa (A):
+                  </span>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    {activeDisplayedStats.studentsWithAlfa.slice(0, 4).map(({ student, count }) => (
+                      <span
+                        key={student.id}
+                        className="px-2 py-0.5 rounded-md font-extrabold bg-white text-rose-800 border border-rose-200 text-[11px] shadow-2xs"
+                      >
+                        {student.nama} ({count}x)
+                      </span>
+                    ))}
+                    {activeDisplayedStats.studentsWithAlfa.length > 4 && (
+                      <span className="text-rose-700 text-[11px] font-bold">
+                        +{activeDisplayedStats.studentsWithAlfa.length - 4} siswa lainnya
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setMatrixAbsenceFilter('alfa')}
+                  className="px-2.5 py-1 bg-rose-600 hover:bg-rose-700 text-white text-[11px] font-bold rounded-lg cursor-pointer transition-colors shadow-2xs"
+                >
+                  Fokus Siswa Alfa
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Matrix Spreadsheet Table */}
+          <div className="overflow-x-auto relative">
             <table className="w-full text-xs text-left border-collapse">
               <thead className="bg-slate-100 text-slate-700 font-bold uppercase tracking-wider text-[11px] border-b border-slate-300">
+                {/* Level 1: Month Group Super Header */}
                 <tr>
-                  <th className="py-2.5 px-3 w-10 text-center border-r border-slate-200">No</th>
-                  <th className="py-2.5 px-3 min-w-[180px] border-r border-slate-200">Nama Siswa</th>
-                  <th className="py-2.5 px-2 w-12 text-center border-r border-slate-200">L/P</th>
+                  <th
+                    rowSpan={2}
+                    className="py-3 px-3 w-10 text-center border-r border-slate-200 sticky left-0 bg-slate-100 z-20"
+                  >
+                    No
+                  </th>
+                  <th
+                    rowSpan={2}
+                    className="py-3 px-3 min-w-[180px] border-r border-slate-200 sticky left-10 bg-slate-100 z-20 shadow-[2px_0_4px_-1px_rgba(0,0,0,0.08)]"
+                  >
+                    Nama Siswa
+                  </th>
+                  <th
+                    rowSpan={2}
+                    className="py-3 px-2 w-12 text-center border-r border-slate-200 bg-slate-100 z-10"
+                  >
+                    L/P
+                  </th>
 
-                  {/* Sessions Columns */}
-                  {sessions.map((ses) => (
-                    <th
-                      key={ses.id}
-                      className="py-2 px-2 w-14 text-center border-r border-slate-200 bg-indigo-50/50"
-                      title={`${ses.tanggal} - ${ses.topikMateri}`}
-                    >
-                      <span className="block font-extrabold text-indigo-900">P{ses.pertemuanKe}</span>
-                      <span className="text-[9px] text-slate-500 font-normal block truncate">
-                        {ses.tanggal.substring(5)}
-                      </span>
-                    </th>
-                  ))}
+                  {/* Month Group Super Columns */}
+                  {displayedMonthGroups.map((group, gIdx) => {
+                    const theme = MONTH_THEMES[gIdx % MONTH_THEMES.length];
+                    const colSpan = group.sessions.length + (showMonthSubtotals ? 4 : 0);
 
-                  {/* Summary Totals */}
-                  <th className="py-2.5 px-2 w-10 text-center bg-emerald-50 text-emerald-900 border-r border-slate-200 font-extrabold">H</th>
-                  <th className="py-2.5 px-2 w-10 text-center bg-blue-50 text-blue-900 border-r border-slate-200 font-extrabold">S</th>
-                  <th className="py-2.5 px-2 w-10 text-center bg-amber-50 text-amber-900 border-r border-slate-200 font-extrabold">I</th>
-                  <th className="py-2.5 px-2 w-10 text-center bg-rose-50 text-rose-900 border-r border-slate-200 font-extrabold">A</th>
-                  <th className="py-2.5 px-3 w-16 text-center bg-indigo-100 text-indigo-950 font-extrabold">% Hadir</th>
+                    return (
+                      <th
+                        key={`month-hdr-${group.key}`}
+                        colSpan={colSpan}
+                        className={`py-2.5 px-3 text-center border-b border-slate-300 font-black tracking-wide ${theme.headerBg} ${theme.borderSep}`}
+                      >
+                        <div className="flex items-center justify-center gap-2">
+                          <Calendar className="w-3.5 h-3.5" />
+                          <span className="font-extrabold text-xs">
+                            BULAN {group.monthName.toUpperCase()} {group.year > 0 ? group.year : ''}
+                          </span>
+                          <span
+                            className={`text-[10px] px-2 py-0.5 rounded-full font-extrabold ${theme.badge}`}
+                          >
+                            {group.sessions.length} Pertemuan
+                          </span>
+                          <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-white text-slate-700 border border-slate-200/80 shadow-2xs">
+                            {group.stats.percent}% Hadir
+                          </span>
+                          {group.stats.totalA > 0 && (
+                            <span className="text-[10px] px-2 py-0.5 rounded-full font-black bg-rose-600 text-white">
+                              {group.stats.totalA} Alfa
+                            </span>
+                          )}
+                        </div>
+                      </th>
+                    );
+                  })}
+
+                  {/* Overall Semester Super Column */}
+                  <th
+                    colSpan={5}
+                    className="py-2.5 px-3 text-center bg-indigo-100 text-indigo-950 font-black border-b border-indigo-200"
+                  >
+                    TOTAL KESELURUHAN (SEMESTER)
+                  </th>
+                </tr>
+
+                {/* Level 2: Sub-headers for Sessions & Subtotals */}
+                <tr className="bg-slate-50 text-[10px] text-slate-700 font-bold border-b border-slate-300">
+                  {displayedMonthGroups.map((group, gIdx) => {
+                    const theme = MONTH_THEMES[gIdx % MONTH_THEMES.length];
+
+                    return (
+                      <React.Fragment key={`month-subcols-${group.key}`}>
+                        {/* Session columns */}
+                        {group.sessions.map((ses, sIdx) => {
+                          const isLast = sIdx === group.sessions.length - 1 && !showMonthSubtotals;
+                          return (
+                            <th
+                              key={ses.id}
+                              className={`py-2 px-1.5 w-14 text-center border-r ${
+                                isLast ? theme.borderSep : 'border-slate-200'
+                              } ${theme.subHeaderBg}`}
+                              title={`${group.label} • Pertemuan ke-${ses.pertemuanKe}\nTanggal: ${ses.tanggal}\nTopik: ${ses.topikMateri}`}
+                            >
+                              <span className={`block font-black text-[11px] ${theme.titleText}`}>
+                                P{ses.pertemuanKe}
+                              </span>
+                              <span className="text-[9px] text-slate-500 font-mono block truncate">
+                                {formatSessionDate(ses.tanggal)}
+                              </span>
+                            </th>
+                          );
+                        })}
+
+                        {/* Monthly Subtotal columns (H, S, I, A) */}
+                        {showMonthSubtotals && (
+                          <>
+                            <th
+                              className="py-2 px-1.5 w-8 text-center bg-emerald-100/90 text-emerald-950 border-r border-slate-200 font-black text-[10px]"
+                              title={`Total Hadir bulan ${group.monthName}`}
+                            >
+                              H
+                            </th>
+                            <th
+                              className="py-2 px-1.5 w-8 text-center bg-blue-100/90 text-blue-950 border-r border-slate-200 font-black text-[10px]"
+                              title={`Total Sakit bulan ${group.monthName}`}
+                            >
+                              S
+                            </th>
+                            <th
+                              className="py-2 px-1.5 w-8 text-center bg-amber-100/90 text-amber-950 border-r border-slate-200 font-black text-[10px]"
+                              title={`Total Izin bulan ${group.monthName}`}
+                            >
+                              I
+                            </th>
+                            <th
+                              className={`py-2 px-1.5 w-8 text-center bg-rose-100/90 text-rose-950 font-black text-[10px] ${theme.borderSep}`}
+                              title={`Total Alfa bulan ${group.monthName}`}
+                            >
+                              A
+                            </th>
+                          </>
+                        )}
+                      </React.Fragment>
+                    );
+                  })}
+
+                  {/* Grand Totals */}
+                  <th
+                    className="py-2 px-2 w-10 text-center bg-emerald-100 text-emerald-900 border-r border-slate-200 font-black"
+                    title="Total Hadir Seluruh Sesi"
+                  >
+                    H
+                  </th>
+                  <th
+                    className="py-2 px-2 w-10 text-center bg-blue-100 text-blue-900 border-r border-slate-200 font-black"
+                    title="Total Sakit Seluruh Sesi"
+                  >
+                    S
+                  </th>
+                  <th
+                    className="py-2 px-2 w-10 text-center bg-amber-100 text-amber-900 border-r border-slate-200 font-black"
+                    title="Total Izin Seluruh Sesi"
+                  >
+                    I
+                  </th>
+                  <th
+                    className="py-2 px-2 w-10 text-center bg-rose-100 text-rose-900 border-r border-slate-200 font-black"
+                    title="Total Alfa Seluruh Sesi"
+                  >
+                    A
+                  </th>
+                  <th
+                    className="py-2 px-3 w-16 text-center bg-indigo-100 text-indigo-950 font-black"
+                    title="Persentase Kehadiran Total"
+                  >
+                    % Hadir
+                  </th>
                 </tr>
               </thead>
 
               <tbody className="divide-y divide-slate-200 text-slate-800">
-                {students.map((student) => {
-                  let h = 0;
-                  let s = 0;
-                  let i = 0;
-                  let a = 0;
+                {filteredMatrixStudents.length === 0 ? (
+                  <tr>
+                    <td
+                      colSpan={
+                        3 +
+                        displayedMonthGroups.reduce(
+                          (acc, g) => acc + g.sessions.length + (showMonthSubtotals ? 4 : 0),
+                          0
+                        ) +
+                        5
+                      }
+                      className="py-12 text-center text-slate-400 bg-slate-50/50"
+                    >
+                      <div className="flex flex-col items-center justify-center gap-2">
+                        <AlertTriangle className="w-8 h-8 text-slate-300" />
+                        <span className="font-bold text-slate-600 text-sm">
+                          Tidak ada siswa yang sesuai dengan filter
+                        </span>
+                        <span className="text-xs text-slate-400">
+                          Coba ubah filter absensi atau hapus kata kunci pencarian.
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setMatrixSearchQuery('');
+                            setMatrixAbsenceFilter('all');
+                          }}
+                          className="mt-2 px-3 py-1.5 text-xs font-bold text-indigo-600 hover:text-indigo-800 bg-indigo-50 rounded-lg cursor-pointer"
+                        >
+                          Reset Semua Filter
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ) : (
+                  filteredMatrixStudents.map((student) => {
+                    // Cumulative Grand Totals for this student
+                    let grandH = 0;
+                    let grandS = 0;
+                    let grandI = 0;
+                    let grandA = 0;
 
-                  return (
-                    <tr key={student.id} className="hover:bg-slate-50">
-                      <td className="py-2 px-3 text-center font-mono text-slate-500 border-r border-slate-200">
-                        {student.no}
-                      </td>
-                      <td className="py-2 px-3 font-semibold text-slate-900 border-r border-slate-200">
-                        {student.nama}
-                      </td>
-                      <td className="py-2 px-2 text-center border-r border-slate-200">
-                        <span
-                          title={`Jenis Kelamin: ${student.gender === 'L' ? 'Laki-laki' : 'Perempuan'} (Edit di Data Siswa)`}
-                          className={`w-6 h-6 rounded-md font-extrabold text-xs inline-flex items-center justify-center select-none ${
-                            student.gender === 'L'
-                              ? 'text-blue-700 bg-blue-50 border border-blue-200'
-                              : 'text-pink-700 bg-pink-50 border border-pink-200'
+                    return (
+                      <tr key={student.id} className="hover:bg-slate-50/80 transition-colors">
+                        {/* No */}
+                        <td className="py-2 px-3 text-center font-mono text-slate-500 border-r border-slate-200 sticky left-0 bg-white z-10">
+                          {student.no}
+                        </td>
+
+                        {/* Nama Siswa */}
+                        <td className="py-2 px-3 font-semibold text-slate-900 border-r border-slate-200 sticky left-10 bg-white z-10 shadow-[2px_0_4px_-1px_rgba(0,0,0,0.06)]">
+                          <div className="flex flex-col">
+                            <span className="truncate">{student.nama}</span>
+                            <span className="text-[10px] font-mono text-slate-400 font-normal">
+                              {student.nisn}
+                            </span>
+                          </div>
+                        </td>
+
+                        {/* Gender */}
+                        <td className="py-2 px-2 text-center border-r border-slate-200 bg-white">
+                          <span
+                            title={`Jenis Kelamin: ${student.gender === 'L' ? 'Laki-laki' : 'Perempuan'}`}
+                            className={`w-6 h-6 rounded-md font-extrabold text-xs inline-flex items-center justify-center select-none ${
+                              student.gender === 'L'
+                                ? 'text-blue-700 bg-blue-50 border border-blue-200'
+                                : 'text-pink-700 bg-pink-50 border border-pink-200'
+                            }`}
+                          >
+                            {student.gender}
+                          </span>
+                        </td>
+
+                        {/* Month Groups & Sessions Cells */}
+                        {displayedMonthGroups.map((group, gIdx) => {
+                          const theme = MONTH_THEMES[gIdx % MONTH_THEMES.length];
+                          let mH = 0;
+                          let mS = 0;
+                          let mI = 0;
+                          let mA = 0;
+
+                          return (
+                            <React.Fragment key={`std-${student.id}-month-${group.key}`}>
+                              {/* Session cells */}
+                              {group.sessions.map((ses, sIdx) => {
+                                const rec = ses.records[student.id];
+                                const st = rec?.status || '';
+                                if (st === 'H') {
+                                  mH++;
+                                  grandH++;
+                                } else if (st === 'S') {
+                                  mS++;
+                                  grandS++;
+                                } else if (st === 'I') {
+                                  mI++;
+                                  grandI++;
+                                } else if (st === 'A') {
+                                  mA++;
+                                  grandA++;
+                                }
+
+                                const isLast = sIdx === group.sessions.length - 1 && !showMonthSubtotals;
+
+                                return (
+                                  <td
+                                    key={ses.id}
+                                    className={`py-1.5 px-1 text-center border-r ${
+                                      isLast ? theme.borderSep : 'border-slate-200'
+                                    } ${
+                                      st === 'A'
+                                        ? 'bg-rose-50/70'
+                                        : st === 'S'
+                                        ? 'bg-blue-50/40'
+                                        : st === 'I'
+                                        ? 'bg-amber-50/40'
+                                        : ''
+                                    }`}
+                                    title={`${student.nama} • ${group.monthName} P${ses.pertemuanKe}: Klik untuk ubah (H → S → I → A → Kosongkan)`}
+                                  >
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setHasUnsavedChanges(true);
+                                        let nextSt: AttendanceStatus = 'H';
+                                        if (st === 'H') nextSt = 'S';
+                                        else if (st === 'S') nextSt = 'I';
+                                        else if (st === 'I') nextSt = 'A';
+                                        else if (st === 'A') nextSt = '' as AttendanceStatus;
+                                        else nextSt = 'H';
+                                        onUpdateStatus(ses.id, student.id, nextSt);
+                                      }}
+                                      className={`w-6 h-6 rounded text-xs font-extrabold transition-all cursor-pointer inline-flex items-center justify-center hover:scale-110 shadow-2xs ${
+                                        st === 'H'
+                                          ? 'bg-emerald-600 text-white'
+                                          : st === 'S'
+                                          ? 'bg-blue-600 text-white'
+                                          : st === 'I'
+                                          ? 'bg-amber-500 text-white'
+                                          : st === 'A'
+                                          ? 'bg-rose-600 text-white ring-2 ring-rose-400 font-black'
+                                          : 'text-slate-300 hover:text-slate-600 hover:bg-slate-200 bg-slate-50'
+                                      }`}
+                                    >
+                                      {st || '·'}
+                                    </button>
+                                  </td>
+                                );
+                              })}
+
+                              {/* Monthly Subtotals for this student */}
+                              {showMonthSubtotals && (
+                                <>
+                                  <td className="py-2 px-1 text-center bg-emerald-50/50 font-bold text-emerald-800 border-r border-slate-200">
+                                    {mH}
+                                  </td>
+                                  <td className="py-2 px-1 text-center bg-blue-50/50 font-bold text-blue-800 border-r border-slate-200">
+                                    {mS}
+                                  </td>
+                                  <td className="py-2 px-1 text-center bg-amber-50/50 font-bold text-amber-800 border-r border-slate-200">
+                                    {mI}
+                                  </td>
+                                  <td
+                                    className={`py-2 px-1 text-center font-black ${theme.borderSep} ${
+                                      mA > 0
+                                        ? 'bg-rose-100 text-rose-800 font-black'
+                                        : 'bg-rose-50/30 text-slate-400'
+                                    }`}
+                                  >
+                                    {mA}
+                                  </td>
+                                </>
+                              )}
+                            </React.Fragment>
+                          );
+                        })}
+
+                        {/* Grand Totals */}
+                        <td className="py-2 px-2 text-center bg-emerald-50/70 font-black text-emerald-800 border-r border-slate-200">
+                          {grandH}
+                        </td>
+                        <td className="py-2 px-2 text-center bg-blue-50/70 font-black text-blue-800 border-r border-slate-200">
+                          {grandS}
+                        </td>
+                        <td className="py-2 px-2 text-center bg-amber-50/70 font-black text-amber-800 border-r border-slate-200">
+                          {grandI}
+                        </td>
+                        <td
+                          className={`py-2 px-2 text-center border-r border-slate-200 font-black ${
+                            grandA > 0
+                              ? 'bg-rose-100 text-rose-800 ring-1 ring-rose-300'
+                              : 'bg-rose-50/50 text-slate-400'
                           }`}
                         >
-                          {student.gender}
-                        </span>
-                      </td>
-
-                      {/* Sessions cells */}
-                      {sessions.map((ses) => {
-                        const rec = ses.records[student.id];
-                        const st = rec?.status || '';
-                        if (st === 'H') h++;
-                        else if (st === 'S') s++;
-                        else if (st === 'I') i++;
-                        else if (st === 'A') a++;
-
-                        return (
-                          <td
-                            key={ses.id}
-                            className="py-1.5 px-1 text-center border-r border-slate-200"
-                            title={`${student.nama} - P${ses.pertemuanKe}: Klik untuk ubah (H->S->I->A->Kosongkan)`}
-                          >
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setHasUnsavedChanges(true);
-                                let nextSt: AttendanceStatus = 'H';
-                                if (st === 'H') nextSt = 'S';
-                                else if (st === 'S') nextSt = 'I';
-                                else if (st === 'I') nextSt = 'A';
-                                else if (st === 'A') nextSt = '' as AttendanceStatus;
-                                else nextSt = 'H';
-                                onUpdateStatus(ses.id, student.id, nextSt);
-                              }}
-                              className={`w-6 h-6 rounded text-xs font-extrabold transition-all cursor-pointer inline-flex items-center justify-center hover:scale-110 shadow-2xs ${
-                                st === 'H'
-                                  ? 'bg-emerald-600 text-white'
-                                  : st === 'S'
-                                  ? 'bg-blue-600 text-white'
-                                  : st === 'I'
-                                  ? 'bg-amber-500 text-white'
-                                  : st === 'A'
-                                  ? 'bg-rose-600 text-white'
-                                  : 'text-slate-300 hover:text-slate-600 hover:bg-slate-200 bg-slate-50'
-                              }`}
-                            >
-                              {st || '·'}
-                            </button>
-                          </td>
-                        );
-                      })}
-
-                      {/* Totals */}
-                      <td className="py-2 px-2 text-center bg-emerald-50/60 font-bold text-emerald-800 border-r border-slate-200">{h}</td>
-                      <td className="py-2 px-2 text-center bg-blue-50/60 font-bold text-blue-800 border-r border-slate-200">{s}</td>
-                      <td className="py-2 px-2 text-center bg-amber-50/60 font-bold text-amber-800 border-r border-slate-200">{i}</td>
-                      <td className="py-2 px-2 text-center bg-rose-50/60 font-bold text-rose-800 border-r border-slate-200">{a}</td>
-                      <td className="py-2 px-3 text-center bg-indigo-50/80 font-bold text-indigo-900">
-                        {sessions.length > 0
-                          ? `${Math.round((h / sessions.length) * 100)}%`
-                          : '100%'}
-                      </td>
-                    </tr>
-                  );
-                })}
+                          {grandA}
+                        </td>
+                        <td className="py-2 px-3 text-center bg-indigo-50 font-black text-indigo-950">
+                          {sessions.length > 0
+                            ? `${Math.round((grandH / sessions.length) * 100)}%`
+                            : '100%'}
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
               </tbody>
+
+              {/* Table Footer: Class Attendance Rate per Meeting */}
+              {filteredMatrixStudents.length > 0 && (
+                <tfoot className="bg-slate-100 font-black text-[11px] text-slate-800 border-t-2 border-slate-300">
+                  <tr>
+                    <td
+                      colSpan={3}
+                      className="py-2.5 px-3 font-extrabold text-slate-900 border-r border-slate-200 sticky left-0 bg-slate-100 z-10"
+                    >
+                      Total Siswa Hadir (H)
+                    </td>
+
+                    {/* Per Session totals */}
+                    {displayedMonthGroups.map((group, gIdx) => {
+                      const theme = MONTH_THEMES[gIdx % MONTH_THEMES.length];
+                      return (
+                        <React.Fragment key={`foot-month-${group.key}`}>
+                          {group.sessions.map((ses, sIdx) => {
+                            let countPresent = 0;
+                            filteredMatrixStudents.forEach((std) => {
+                              if (ses.records[std.id]?.status === 'H') countPresent++;
+                            });
+                            const isLast = sIdx === group.sessions.length - 1 && !showMonthSubtotals;
+                            return (
+                              <td
+                                key={`foot-ses-${ses.id}`}
+                                className={`py-2 px-1 text-center font-mono border-r ${
+                                  isLast ? theme.borderSep : 'border-slate-200'
+                                } bg-indigo-50/30 text-indigo-900`}
+                                title={`Hadir: ${countPresent} dari ${filteredMatrixStudents.length} siswa`}
+                              >
+                                {countPresent}
+                              </td>
+                            );
+                          })}
+
+                          {showMonthSubtotals && (
+                            <>
+                              <td className="py-2 px-1 text-center bg-emerald-100 text-emerald-950 border-r border-slate-200 font-mono">
+                                {group.stats.totalH}
+                              </td>
+                              <td className="py-2 px-1 text-center bg-blue-100 text-blue-950 border-r border-slate-200 font-mono">
+                                {group.stats.totalS}
+                              </td>
+                              <td className="py-2 px-1 text-center bg-amber-100 text-amber-950 border-r border-slate-200 font-mono">
+                                {group.stats.totalI}
+                              </td>
+                              <td
+                                className={`py-2 px-1 text-center bg-rose-100 text-rose-950 font-mono ${theme.borderSep}`}
+                              >
+                                {group.stats.totalA}
+                              </td>
+                            </>
+                          )}
+                        </React.Fragment>
+                      );
+                    })}
+
+                    {/* Grand totals foot */}
+                    <td className="py-2 px-2 text-center bg-emerald-200 text-emerald-950 border-r border-slate-200 font-mono">
+                      {activeDisplayedStats.totalH}
+                    </td>
+                    <td className="py-2 px-2 text-center bg-blue-200 text-blue-950 border-r border-slate-200 font-mono">
+                      {activeDisplayedStats.totalS}
+                    </td>
+                    <td className="py-2 px-2 text-center bg-amber-200 text-amber-950 border-r border-slate-200 font-mono">
+                      {activeDisplayedStats.totalI}
+                    </td>
+                    <td className="py-2 px-2 text-center bg-rose-200 text-rose-950 border-r border-slate-200 font-mono">
+                      {activeDisplayedStats.totalA}
+                    </td>
+                    <td className="py-2 px-3 text-center bg-indigo-200 text-indigo-950 font-black">
+                      {activeDisplayedStats.percent}%
+                    </td>
+                  </tr>
+                </tfoot>
+              )}
             </table>
           </div>
 

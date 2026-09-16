@@ -16,6 +16,8 @@ import {
   LogOut,
   Cloud,
   MapPin,
+  Sparkles,
+  CheckSquare,
 } from 'lucide-react';
 import { ActiveTab, ClassRoom, TeacherProfile } from '../types';
 import { SchoolLogo } from './SchoolLogo';
@@ -26,6 +28,8 @@ interface NavbarProps {
   activeClassId: string;
   activeTab: ActiveTab;
   isCloudSaving?: boolean;
+  isCloudLoading?: boolean;
+  onPullCloudData?: () => void;
   onSelectClass: (classId: string) => void;
   onSelectTab: (tab: ActiveTab) => void;
   onOpenClassModal: () => void;
@@ -42,6 +46,8 @@ export const Navbar: React.FC<NavbarProps> = ({
   activeClassId,
   activeTab,
   isCloudSaving = false,
+  isCloudLoading = false,
+  onPullCloudData,
   onSelectClass,
   onSelectTab,
   onOpenClassModal,
@@ -134,18 +140,36 @@ export const Navbar: React.FC<NavbarProps> = ({
               )}
             </div>
 
-            {/* Cloud Sync Status Indicator */}
-            <div className="flex items-center gap-1.5 px-2 py-1.5 rounded-xl bg-slate-50 border border-slate-200/80 text-[11px] font-medium text-slate-600 shadow-2xs">
+            {/* Cloud Sync Status Indicator & Manual Pull */}
+            <div className="flex items-center gap-1.5 px-2 py-1 rounded-xl bg-slate-50 border border-slate-200/80 text-[11px] font-medium text-slate-600 shadow-2xs">
               {isCloudSaving ? (
                 <>
                   <RefreshCw className="w-3.5 h-3.5 text-amber-500 animate-spin shrink-0" />
                   <span className="text-amber-600 font-semibold hidden md:inline">Menyimpan...</span>
                 </>
+              ) : isCloudLoading ? (
+                <>
+                  <RefreshCw className="w-3.5 h-3.5 text-indigo-600 animate-spin shrink-0" />
+                  <span className="text-indigo-600 font-semibold hidden md:inline">Memuat...</span>
+                </>
               ) : (
                 <>
-                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0" />
+                  <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
                   <span className="text-slate-600 font-medium hidden md:inline">Cloud Aktif</span>
                 </>
+              )}
+
+              {onPullCloudData && (
+                <button
+                  type="button"
+                  onClick={onPullCloudData}
+                  disabled={isCloudLoading || isCloudSaving}
+                  title="Ambil / Tarik data terbaru dari Cloud Firestore"
+                  className="inline-flex items-center gap-1 px-1.5 py-0.5 ml-1 rounded-md text-[10px] font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200/70 transition-colors cursor-pointer disabled:opacity-50"
+                >
+                  <RefreshCw className={`w-2.5 h-2.5 ${isCloudLoading ? 'animate-spin' : ''}`} />
+                  <span>Ambil Cloud</span>
+                </button>
               )}
             </div>
 
@@ -295,6 +319,32 @@ export const Navbar: React.FC<NavbarProps> = ({
             >
               <MessageSquare className="w-3.5 h-3.5" />
               <span>Laporan Ortu (WA)</span>
+            </button>
+
+            <button
+              id="tab-generator-modul"
+              onClick={() => onSelectTab('generator-modul')}
+              className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-bold rounded-xl whitespace-nowrap transition-all cursor-pointer ${
+                activeTab === 'generator-modul'
+                  ? 'bg-gradient-to-r from-indigo-600 to-emerald-600 text-white shadow-xs ring-1 ring-emerald-300/40'
+                  : 'text-indigo-900 bg-indigo-50/80 hover:bg-indigo-100 border border-indigo-200/70 shadow-2xs'
+              }`}
+            >
+              <Sparkles className="w-3.5 h-3.5 text-amber-500 animate-pulse" />
+              <span>Generator Modul & LKPD</span>
+            </button>
+
+            <button
+              id="tab-kisi-kartu-soal"
+              onClick={() => onSelectTab('kisi-kartu-soal')}
+              className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-bold rounded-xl whitespace-nowrap transition-all cursor-pointer ${
+                activeTab === 'kisi-kartu-soal'
+                  ? 'bg-amber-600 text-white shadow-xs ring-1 ring-amber-400'
+                  : 'text-amber-950 bg-amber-100/90 hover:bg-amber-200/80 border border-amber-300/90 shadow-2xs'
+              }`}
+            >
+              <CheckSquare className="w-3.5 h-3.5 text-amber-600" />
+              <span>Kisi-Kisi & Kartu Soal</span>
             </button>
           </nav>
         </div>

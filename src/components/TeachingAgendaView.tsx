@@ -42,12 +42,12 @@ interface TeachingAgendaViewProps {
   onDeleteAgenda: (agendaId: string) => Promise<void> | void;
 }
 
-// 12 Jam Mengajar list as shown in the screenshot
+// 12 Jam Mengajar list as shown in the schedule
 const JAM_LIST = [
-  { jam: 1, label: '1. (07:15 - 7:45)', time: '07:15 - 07:45' },
-  { jam: 2, label: '2. (07:45 - 8:15)', time: '07:45 - 08:15' },
-  { jam: 3, label: '3. (08:45 - 9:15)', time: '08:15 - 08:45' },
-  { jam: 4, label: '4. (08:45 - 9:15)', time: '08:45 - 09:15' },
+  { jam: 1, label: '1. (07:15 - 07:45)', time: '07:15 - 07:45' },
+  { jam: 2, label: '2. (07:45 - 08:15)', time: '07:45 - 08:15' },
+  { jam: 3, label: '3. (08:15 - 08:45)', time: '08:15 - 08:45' },
+  { jam: 4, label: '4. (08:45 - 09:15)', time: '08:45 - 09:15' },
   { jam: 5, label: '5. (09:30 - 10:00)', time: '09:30 - 10:00' },
   { jam: 6, label: '6. (10:00 - 10:30)', time: '10:00 - 10:30' },
   { jam: 7, label: '7. (10:30 - 11:00)', time: '10:30 - 11:00' },

@@ -45,6 +45,8 @@ import { GoogleLoginScreen } from './components/GoogleLoginScreen';
 import { DeleteClassModal } from './components/DeleteClassModal';
 import { GoogleWorkspaceView } from './components/GoogleWorkspaceView';
 import { SchoolMapView } from './components/SchoolMapView';
+import { PromptGeneratorModulView } from './components/PromptGeneratorModulView';
+import { KisiKartuSoalView } from './components/kisi-kartu-soal/KisiKartuSoalView';
 
 export default function App() {
   // Load State from persistent storage as fast initial fallback
@@ -151,6 +153,36 @@ export default function App() {
 
     return () => unsubscribe();
   }, []);
+
+  const handlePullCloudData = async () => {
+    if (!auth.currentUser) {
+      showToast('Silakan login terlebih dahulu untuk mengambil data dari Cloud Firestore.', 'info');
+      return;
+    }
+    const uid = auth.currentUser.uid;
+    setIsCloudLoading(true);
+    setCloudStatusMsg('Mengambil data terbaru dari Cloud Firestore...');
+    try {
+      const userData = await FirestoreService.loadUserData(uid);
+      if (userData.isNewUser) {
+        showToast('Data di Cloud Firestore masih kosong. Data lokal Anda tetap aktif.', 'info');
+      } else {
+        setTeacher(userData.teacher);
+        setClasses(userData.classes);
+        if (userData.activeClassId) setActiveClassId(userData.activeClassId);
+        setAllStudents(userData.students);
+        setAllSessions(userData.sessions);
+        setAllGrades(userData.grades);
+        if (userData.agendas) setAllAgendas(userData.agendas);
+        showToast('Data berhasil disinkronisasi & diambil dari Cloud Firestore!', 'success');
+      }
+    } catch (error: any) {
+      console.error('[App] Error manual sync from Cloud Firestore:', error);
+      showToast('Gagal memuat data dari Cloud: ' + (error?.message || 'Periksa koneksi'), 'error');
+    } finally {
+      setIsCloudLoading(false);
+    }
+  };
 
   // Sync to Storage whenever state updates as secondary offline cache
   useEffect(() => {
@@ -984,6 +1016,8 @@ export default function App() {
         activeClassId={activeClassId}
         activeTab={activeTab}
         isCloudSaving={isCloudSaving}
+        isCloudLoading={isCloudLoading}
+        onPullCloudData={handlePullCloudData}
         onSelectClass={handleSelectClass}
         onSelectTab={setActiveTab}
         onOpenClassModal={handleOpenCreateClass}
@@ -1041,6 +1075,20 @@ export default function App() {
             onSaveAgenda={handleSaveAgenda}
             onDeleteAgenda={handleDeleteAgenda}
           />
+        )}
+
+        {/* TAB BARU: GENERATOR PROMPT MODUL AJAR & LKPD */}
+        {activeTab === 'generator-modul' && (
+          <PromptGeneratorModulView
+            teacher={teacher}
+            classes={classes}
+            activeClassId={activeClassId}
+          />
+        )}
+
+        {/* TAB BARU PALING KANAN: APLIKASI KISI-KISI & KARTU SOAL (KUMER EDITED) */}
+        {activeTab === 'kisi-kartu-soal' && (
+          <KisiKartuSoalView />
         )}
 
         {/* TAB 2: INPUT & REKAP NILAI */}

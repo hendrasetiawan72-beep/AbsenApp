@@ -1,6 +1,6 @@
 {
   "name": "Aplikasi Absensi & Nilai Siswa",
-  "description": "Aplikasi absensi, agenda mengajar harian guru, dan rekap nilai siswa SMK Muhammadiyah Bawang dilengkapi unduh file dokumen Word, Excel, cetak PDF resmi, laporan harian orang tua via WhatsApp, Google Workspace, dan integrasi cloud.",
+  "description": "Aplikasi absensi, agenda mengajar, generator prompt modul ajar & LKPD, rekap nilai siswa, serta pembuat kisi-kisi dan kartu soal Kurikulum Merdeka SMK Muhammadiyah Bawang dilengkapi impor/ekspor spreadsheet, unduh Word/Excel, cetak PDF, dan integrasi cloud.",
   "requestFramePermissions": ["geolocation"],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

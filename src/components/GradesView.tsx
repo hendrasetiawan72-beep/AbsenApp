@@ -18,6 +18,9 @@ import {
   CalendarDays,
   Layers,
   Settings2,
+  BookOpen,
+  GraduationCap,
+  Info,
 } from 'lucide-react';
 import { Student, StudentGrade, Gender, GradeColumnHeader } from '../types';
 import { exportGradesToExcel } from '../utils/excel';
@@ -72,8 +75,8 @@ export const GradesView: React.FC<GradesViewProps> = ({
   const [filterGender, setFilterGender] = useState<'all' | Gender>('all');
   const [isQuickEditMode, setIsQuickEditMode] = useState(false);
 
-  // Month navigation tab: 0..5 (month index) or 'all' (Semester Summary)
-  const [activeMonthTab, setActiveMonthTab] = useState<'all' | number>(0);
+  // Month navigation tab: 0..5 (month index), 'sumatif' (Dedicated STS & SAS), or 'all' (Semester Summary)
+  const [activeMonthTab, setActiveMonthTab] = useState<'all' | 'sumatif' | number>(0);
 
   // Unsaved changes & saving states
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
@@ -82,7 +85,7 @@ export const GradesView: React.FC<GradesViewProps> = ({
 
   const safeSemester: 'Ganjil' | 'Genap' = semester === 'Genap' ? 'Genap' : 'Ganjil';
 
-  // Working copy of headers (24 columns: 6 months x 4 columns)
+  // Working copy of headers (24 formatif columns + STS + SAS)
   const [columnHeaders, setColumnHeaders] = useState<GradeColumnHeader[]>(() => {
     if (initialHeaders && initialHeaders.length > 0) return initialHeaders;
     return Storage.getGradeHeaders(classId, safeSemester, academicYear);
@@ -96,6 +99,7 @@ export const GradesView: React.FC<GradesViewProps> = ({
   // Header configuration modal state
   const [isHeaderModalOpen, setIsHeaderModalOpen] = useState(false);
   const [editingMonthIndex, setEditingMonthIndex] = useState<number>(0);
+  const [modalTab, setModalTab] = useState<'formatif' | 'sumatif'>('formatif');
 
   const months = useMemo(() => getSemesterMonths(safeSemester), [safeSemester]);
 
@@ -186,6 +190,55 @@ export const GradesView: React.FC<GradesViewProps> = ({
     setHasUnsavedChanges(true);
   };
 
+  // Handler for Asesmen Sumatif Tengah (STS) & Akhir (SAS) input
+  const handleSumatifChange = (
+    studentId: string,
+    field: 'sumatifTengah' | 'sumatifAkhir',
+    rawVal: string
+  ) => {
+    const clean = rawVal.trim();
+    let numVal: number | null = null;
+    if (clean !== '') {
+      const parsed = parseFloat(clean);
+      if (!isNaN(parsed)) {
+        numVal = Math.max(0, Math.min(100, Math.round(parsed)));
+      }
+    }
+
+    setLocalGrades((prev) => {
+      const index = prev.findIndex((g) => g.studentId === studentId);
+      if (index >= 0) {
+        const target = prev[index];
+        const nextMonthly = {
+          ...(target.monthlyGrades || {}),
+          [field === 'sumatifTengah' ? 'sumatif_tengah' : 'sumatif_akhir']: numVal,
+        };
+        const updated = {
+          ...target,
+          [field]: numVal,
+          monthlyGrades: nextMonthly,
+        };
+        const next = [...prev];
+        next[index] = updated;
+        return next;
+      } else {
+        const newGrade: StudentGrade = {
+          id: `grd-${studentId}`,
+          studentId,
+          classId,
+          [field]: numVal,
+          monthlyGrades: {
+            [field === 'sumatifTengah' ? 'sumatif_tengah' : 'sumatif_akhir']: numVal,
+          },
+          catatan: '',
+        };
+        return [...prev, newGrade];
+      }
+    });
+
+    setHasUnsavedChanges(true);
+  };
+
   // Update a single column's header
   const handleUpdateHeader = (
     key: string,
@@ -198,8 +251,74 @@ export const GradesView: React.FC<GradesViewProps> = ({
     setHasUnsavedChanges(true);
   };
 
+  // Sumatif Tengah (STS) Header helper
+  const stsHeader = useMemo(() => {
+    return (
+      columnHeaders.find((h) => h.key === 'sumatif_tengah') || {
+        key: 'sumatif_tengah',
+        monthIndex: 98,
+        monthName: months[2] || 'Tengah Semester',
+        colIndex: 0,
+        colLabel: 'Sumatif Tengah (STS)',
+        tanggal: '',
+        keterangan: 'Asesmen Sumatif Tengah Semester (STS)',
+      }
+    );
+  }, [columnHeaders, months]);
+
+  // Sumatif Akhir (SAS) Header helper
+  const sasHeader = useMemo(() => {
+    return (
+      columnHeaders.find((h) => h.key === 'sumatif_akhir') || {
+        key: 'sumatif_akhir',
+        monthIndex: 99,
+        monthName: months[5] || 'Akhir Semester',
+        colIndex: 0,
+        colLabel: 'Sumatif Akhir (SAS)',
+        tanggal: '',
+        keterangan: 'Asesmen Sumatif Akhir Semester (SAS)',
+      }
+    );
+  }, [columnHeaders, months]);
+
+  const handleUpdateSumatifHeader = (
+    type: 'sts' | 'sas',
+    field: 'tanggal' | 'keterangan' | 'colLabel',
+    value: string
+  ) => {
+    const key = type === 'sts' ? 'sumatif_tengah' : 'sumatif_akhir';
+    setColumnHeaders((prev) => {
+      const exists = prev.some((h) => h.key === key);
+      if (exists) {
+        return prev.map((h) => (h.key === key ? { ...h, [field]: value } : h));
+      } else {
+        const defaultH: GradeColumnHeader = {
+          key,
+          monthIndex: type === 'sts' ? 98 : 99,
+          monthName:
+            type === 'sts'
+              ? months[2] || 'Tengah Semester'
+              : months[5] || 'Akhir Semester',
+          colIndex: 0,
+          colLabel: type === 'sts' ? 'Sumatif Tengah (STS)' : 'Sumatif Akhir (SAS)',
+          tanggal: '',
+          keterangan:
+            type === 'sts'
+              ? 'Asesmen Sumatif Tengah Semester (STS)'
+              : 'Asesmen Sumatif Akhir Semester (SAS)',
+          [field]: value,
+        };
+        return [...prev, defaultH];
+      }
+    });
+    setHasUnsavedChanges(true);
+  };
+
   // Quick preset generator for 4 columns in a month
-  const applyMonthPresets = (mIndex: number, presetType: 'formatif' | 'tugas_uh') => {
+  const applyMonthPresets = (
+    mIndex: number,
+    presetType: 'formatif_standard' | 'formatif_tp' | 'formatif_variasi'
+  ) => {
     const startYear = parseInt(academicYear.split('/')[0]) || 2025;
     const calMonth = safeSemester === 'Ganjil' ? mIndex + 7 : mIndex + 1;
     const calYear = safeSemester === 'Ganjil' ? startYear : startYear + 1;
@@ -212,25 +331,28 @@ export const GradesView: React.FC<GradesViewProps> = ({
         const day = String(Math.min(28, 7 * (c + 1))).padStart(2, '0');
         const tanggal = `${calYear}-${padMonth}-${day}`;
 
-        let colLabel = `Nilai ${c + 1}`;
-        let keterangan = `Penilaian ${c + 1}`;
+        let colLabel = `Formatif ${c + 1}`;
+        let keterangan = `Asesmen Formatif ${c + 1}`;
 
-        if (presetType === 'formatif') {
-          colLabel = `Form ${c + 1}`;
-          keterangan = `Formatif ${c + 1} (${months[mIndex]})`;
+        if (presetType === 'formatif_standard') {
+          colLabel = `Formatif ${c + 1}`;
+          keterangan = `Asesmen Formatif ${c + 1} (${months[mIndex]})`;
+        } else if (presetType === 'formatif_tp') {
+          colLabel = `TP ${c + 1}`;
+          keterangan = `Tujuan Pembelajaran ${c + 1} (${months[mIndex]})`;
         } else {
           if (c === 0) {
-            colLabel = 'Tugas 1';
-            keterangan = 'Tugas Mandiri';
+            colLabel = 'Formatif 1';
+            keterangan = 'Formatif 1 (Tugas Mandiri/TP 1)';
           } else if (c === 1) {
-            colLabel = 'Tugas 2';
-            keterangan = 'Praktik / Proyek';
+            colLabel = 'Formatif 2';
+            keterangan = 'Formatif 2 (Praktik/Proyek/TP 2)';
           } else if (c === 2) {
-            colLabel = 'UH';
-            keterangan = 'Ulangan Harian';
+            colLabel = 'Formatif 3';
+            keterangan = 'Formatif 3 (Kuis Refleksi/TP 3)';
           } else {
-            colLabel = 'Kuis';
-            keterangan = 'Kuis Refleksi';
+            colLabel = 'Formatif 4';
+            keterangan = 'Formatif 4 (Tes Formatif/TP 4)';
           }
         }
 
@@ -292,9 +414,9 @@ export const GradesView: React.FC<GradesViewProps> = ({
     students.length > 0 ? Math.round(totalFinalScore / students.length) : 0;
   if (students.length === 0) minScore = 0;
 
-  // Active Month Specific Stats
+  // Active Month Specific Stats (Formatif)
   const activeMonthStats = useMemo(() => {
-    if (activeMonthTab === 'all') return null;
+    if (typeof activeMonthTab !== 'number') return null;
     const mIdx = activeMonthTab;
     let totalScoreMonth = 0;
     let studentWithGradeCount = 0;
@@ -314,12 +436,49 @@ export const GradesView: React.FC<GradesViewProps> = ({
         : 0;
 
     return {
+      monthIndex: mIdx,
       monthName: months[mIdx],
       monthAverage,
       gradedStudentsCount: studentWithGradeCount,
       totalStudents: students.length,
     };
   }, [activeMonthTab, students, studentCalculations, months]);
+
+  // Overall Sumatif (STS & SAS) Statistics
+  const sumatifStats = useMemo(() => {
+    let totalSts = 0;
+    let stsCount = 0;
+    let totalSas = 0;
+    let sasCount = 0;
+    let totalFormatif = 0;
+    let formatifCount = 0;
+
+    students.forEach((s) => {
+      const calc = studentCalculations.get(s.id);
+      if (calc?.sumatifTengah !== null && calc?.sumatifTengah !== undefined) {
+        totalSts += calc.sumatifTengah;
+        stsCount++;
+      }
+      if (calc?.sumatifAkhir !== null && calc?.sumatifAkhir !== undefined) {
+        totalSas += calc.sumatifAkhir;
+        sasCount++;
+      }
+      if (calc?.rataFormatif !== null && calc?.rataFormatif !== undefined) {
+        totalFormatif += calc.rataFormatif;
+        formatifCount++;
+      }
+    });
+
+    return {
+      avgSts: stsCount > 0 ? Math.round(totalSts / stsCount) : null,
+      stsCount,
+      avgSas: sasCount > 0 ? Math.round(totalSas / sasCount) : null,
+      sasCount,
+      avgFormatif: formatifCount > 0 ? Math.round(totalFormatif / formatifCount) : null,
+      formatifCount,
+      totalStudents: students.length,
+    };
+  }, [students, studentCalculations]);
 
   // Filtered Students List
   const filteredStudents = useMemo(() => {
@@ -345,7 +504,7 @@ export const GradesView: React.FC<GradesViewProps> = ({
 
   // 4 Column headers for the active month (when in single-month view)
   const singleMonthHeaders = useMemo(() => {
-    if (activeMonthTab === 'all') return [];
+    if (typeof activeMonthTab !== 'number') return [];
     return columnHeaders.filter((h) => h.monthIndex === activeMonthTab);
   }, [columnHeaders, activeMonthTab]);
 
@@ -405,13 +564,13 @@ export const GradesView: React.FC<GradesViewProps> = ({
             </div>
 
             <h2 className="text-xl font-black text-slate-900 tracking-tight flex items-center gap-2">
-              <span>Buku Nilai Bulanan</span>
+              <span>Buku Nilai (Formatif & Sumatif)</span>
               <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-indigo-100 text-indigo-800 border border-indigo-200">
-                4 Kolom Nilai per Bulan
+                Kurikulum Merdeka
               </span>
             </h2>
             <p className="text-xs text-slate-500 mt-1">
-              Gunakan pemilih bulan di bawah untuk fokus menilai bulan tertentu secara bersih, atau buka rekap untuk melihat 24 kolom semester sekaligus.
+              Asesmen Formatif per bulan (4 formatif/bulan) • Asesmen Sumatif Tengah Semester (STS) • Asesmen Sumatif Akhir Semester (SAS).
             </p>
           </div>
 
@@ -445,7 +604,7 @@ export const GradesView: React.FC<GradesViewProps> = ({
               type="button"
               onClick={handleExportExcel}
               className="inline-flex items-center gap-1.5 px-3.5 py-2.5 bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold rounded-xl shadow-xs transition-all cursor-pointer"
-              title="Export seluruh rekap penilaian per bulan ke format Excel (.xlsx)"
+              title="Export seluruh rekap penilaian formatif dan sumatif ke format Excel (.xlsx)"
             >
               <FileSpreadsheet className="w-3.5 h-3.5" />
               <span>Export Excel</span>
@@ -458,7 +617,7 @@ export const GradesView: React.FC<GradesViewProps> = ({
           {hasUnsavedChanges ? (
             <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-50 text-amber-900 border border-amber-300 font-bold">
               <AlertTriangle className="w-4 h-4 text-amber-600" />
-              <span>Ada perubahan nilai/keterangan yang belum disimpan ke Cloud. Tekan tombol Simpan!</span>
+              <span>Ada perubahan nilai formatif/sumatif yang belum disimpan. Tekan tombol Simpan!</span>
             </span>
           ) : (
             <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-50 text-emerald-900 border border-emerald-200/90 font-medium">
@@ -475,11 +634,12 @@ export const GradesView: React.FC<GradesViewProps> = ({
           <button
             type="button"
             onClick={() => {
-              setEditingMonthIndex(activeMonthTab === 'all' ? 0 : activeMonthTab);
+              setEditingMonthIndex(typeof activeMonthTab === 'number' ? activeMonthTab : 0);
+              setModalTab(activeMonthTab === 'sumatif' ? 'sumatif' : 'formatif');
               setIsHeaderModalOpen(true);
             }}
             className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl text-xs font-extrabold transition-colors cursor-pointer border border-slate-200"
-            title="Buka dialog pengaturan tanggal dan keterangan untuk seluruh kolom penilaian"
+            title="Buka dialog pengaturan tanggal dan materi penilaian formatif & sumatif"
           >
             <Settings2 className="w-3.5 h-3.5 text-indigo-600" />
             <span>Atur Tanggal & Materi Penilaian</span>
@@ -487,19 +647,23 @@ export const GradesView: React.FC<GradesViewProps> = ({
         </div>
       </div>
 
-      {/* IMMERSIVE MONTH SELECTOR & NAVIGATOR */}
+      {/* IMMERSIVE TAB SELECTOR & NAVIGATOR (FORMATIF & SUMATIF) */}
       <div className="bg-white p-3 rounded-2xl border border-slate-200/90 shadow-2xs">
         <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
-          {/* Month Tabs Segmented Bar */}
+          {/* Month & Assessment Tabs */}
           <div className="flex items-center gap-1.5 overflow-x-auto pb-1 md:pb-0 scrollbar-none">
+            {/* Formatif Months 1..6 */}
             {months.map((mName, idx) => {
               const isActive = activeMonthTab === idx;
+              const isStsMonth = idx === 2; // Bulan 3: Tengah Semester
+              const isSasMonth = idx === 5; // Bulan 6: Akhir Semester
+
               return (
                 <button
                   key={idx}
                   type="button"
                   onClick={() => setActiveMonthTab(idx)}
-                  className={`px-3.5 py-2 rounded-xl text-xs font-black transition-all cursor-pointer shrink-0 flex items-center gap-2 border ${
+                  className={`px-3 py-2 rounded-xl text-xs font-black transition-all cursor-pointer shrink-0 flex items-center gap-1.5 border ${
                     isActive
                       ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm ring-2 ring-indigo-200'
                       : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200'
@@ -508,20 +672,69 @@ export const GradesView: React.FC<GradesViewProps> = ({
                   <CalendarDays className={`w-3.5 h-3.5 ${isActive ? 'text-indigo-200' : 'text-slate-400'}`} />
                   <span>{mName}</span>
                   <span
-                    className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono font-bold ${
+                    className={`text-[9px] px-1.5 py-0.2 rounded-full font-bold ${
                       isActive
                         ? 'bg-indigo-800 text-white'
                         : 'bg-slate-200/80 text-slate-600'
                     }`}
                   >
-                    4 Nilai
+                    4 Formatif
                   </span>
+                  {isStsMonth && (
+                    <span
+                      title="Bulan ini merupakan periode Tengah Semester (STS)"
+                      className={`text-[9px] px-1 py-0.2 rounded font-extrabold ${
+                        isActive
+                          ? 'bg-amber-400 text-amber-950'
+                          : 'bg-amber-100 text-amber-800 border border-amber-300'
+                      }`}
+                    >
+                      STS
+                    </span>
+                  )}
+                  {isSasMonth && (
+                    <span
+                      title="Bulan ini merupakan periode Akhir Semester (SAS)"
+                      className={`text-[9px] px-1 py-0.2 rounded font-extrabold ${
+                        isActive
+                          ? 'bg-emerald-300 text-emerald-950'
+                          : 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                      }`}
+                    >
+                      SAS
+                    </span>
+                  )}
                 </button>
               );
             })}
 
-            {/* Rekap Semua Bulan Button */}
+            {/* Separator */}
             <div className="w-px h-6 bg-slate-200 mx-1 shrink-0" />
+
+            {/* Dedicated Sumatif (STS & SAS) Tab */}
+            <button
+              type="button"
+              onClick={() => setActiveMonthTab('sumatif')}
+              className={`px-3.5 py-2 rounded-xl text-xs font-black transition-all cursor-pointer shrink-0 flex items-center gap-2 border ${
+                activeMonthTab === 'sumatif'
+                  ? 'bg-amber-600 text-white border-amber-600 shadow-sm ring-2 ring-amber-200'
+                  : 'bg-amber-50/80 hover:bg-amber-100 text-amber-900 border-amber-300/80'
+              }`}
+            >
+              <Award className={`w-3.5 h-3.5 ${activeMonthTab === 'sumatif' ? 'text-amber-100' : 'text-amber-600'}`} />
+              <span>Asesmen Sumatif (STS & SAS)</span>
+              <span
+                className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+                  activeMonthTab === 'sumatif'
+                    ? 'bg-amber-800 text-white'
+                    : 'bg-amber-200 text-amber-900'
+                }`}
+              >
+                2 Ujian
+              </span>
+            </button>
+
+            {/* Rekap Semua Bulan Button */}
             <button
               type="button"
               onClick={() => setActiveMonthTab('all')}
@@ -532,12 +745,12 @@ export const GradesView: React.FC<GradesViewProps> = ({
               }`}
             >
               <Layers className="w-3.5 h-3.5" />
-              <span>Rekap Semua Bulan (24 Kolom)</span>
+              <span>Rekap Semua (Formatif + Sumatif)</span>
             </button>
           </div>
 
           {/* Quick Step Buttons for Prev / Next Month */}
-          {activeMonthTab !== 'all' && (
+          {typeof activeMonthTab === 'number' && (
             <div className="flex items-center gap-1.5 shrink-0 self-end md:self-auto">
               <button
                 type="button"
@@ -564,16 +777,16 @@ export const GradesView: React.FC<GradesViewProps> = ({
           )}
         </div>
 
-        {/* Immersive Month Highlights Panel */}
+        {/* Immersive Highlights Panel based on Tab */}
         {activeMonthStats ? (
           <div className="mt-3 pt-3 border-t border-slate-100 flex flex-wrap items-center justify-between gap-3 text-xs">
             <div className="flex items-center gap-3 flex-wrap">
               <div className="inline-flex items-center gap-1.5 bg-indigo-50/80 px-3 py-1 rounded-lg border border-indigo-100 font-bold text-indigo-900">
                 <Calendar className="w-3.5 h-3.5 text-indigo-600" />
-                <span>Fokus Penilaian: Bulan {activeMonthStats.monthName}</span>
+                <span>Asesmen Formatif: Bulan {activeMonthStats.monthName} (4 Formatif)</span>
               </div>
               <div className="text-slate-600 font-medium">
-                Rata-rata Kelas Bulan Ini:{' '}
+                Rata-rata Formatif Bulan Ini:{' '}
                 <strong className="text-slate-900 font-black">
                   {activeMonthStats.monthAverage > 0 ? activeMonthStats.monthAverage : '-'}
                 </strong>
@@ -584,6 +797,18 @@ export const GradesView: React.FC<GradesViewProps> = ({
                   {activeMonthStats.gradedStudentsCount} / {activeMonthStats.totalStudents}
                 </strong>
               </div>
+              {activeMonthStats.monthIndex === 2 && (
+                <div className="inline-flex items-center gap-1 text-[11px] bg-amber-50 text-amber-900 border border-amber-300/80 px-2 py-0.5 rounded-md font-bold">
+                  <BookOpen className="w-3 h-3 text-amber-600" />
+                  <span>Periode Tengah Semester • Nilai STS dapat diisi di kolom STS</span>
+                </div>
+              )}
+              {activeMonthStats.monthIndex === 5 && (
+                <div className="inline-flex items-center gap-1 text-[11px] bg-emerald-50 text-emerald-900 border border-emerald-300/80 px-2 py-0.5 rounded-md font-bold">
+                  <GraduationCap className="w-3 h-3 text-emerald-600" />
+                  <span>Periode Akhir Semester • Nilai SAS dapat diisi di kolom SAS</span>
+                </div>
+              )}
             </div>
 
             <div className="flex items-center gap-2">
@@ -592,23 +817,119 @@ export const GradesView: React.FC<GradesViewProps> = ({
                 onClick={() => {
                   if (typeof activeMonthTab === 'number') {
                     setEditingMonthIndex(activeMonthTab);
+                    setModalTab('formatif');
                     setIsHeaderModalOpen(true);
                   }
                 }}
                 className="inline-flex items-center gap-1 text-xs font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 px-2.5 py-1 rounded-lg transition-colors cursor-pointer border border-indigo-200"
               >
                 <Edit3 className="w-3 h-3" />
-                <span>Ubah Tanggal & Materi Bulan Ini</span>
+                <span>Ubah Tanggal & Materi Formatif Bulan Ini</span>
               </button>
             </div>
           </div>
+        ) : activeMonthTab === 'sumatif' ? (
+          <div className="mt-3 pt-3 border-t border-slate-100 space-y-3">
+            <div className="flex items-center justify-between flex-wrap gap-2 text-xs">
+              <div className="flex items-center gap-2 font-bold text-amber-950">
+                <Award className="w-4 h-4 text-amber-600" />
+                <span>
+                  Fokus Asesmen Sumatif: Sumatif Tengah Semester (STS) & Sumatif Akhir Semester (SAS)
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setModalTab('sumatif');
+                  setIsHeaderModalOpen(true);
+                }}
+                className="inline-flex items-center gap-1 text-xs font-bold text-amber-900 bg-amber-50 hover:bg-amber-100 px-2.5 py-1 rounded-lg transition-colors cursor-pointer border border-amber-300"
+              >
+                <Edit3 className="w-3 h-3 text-amber-700" />
+                <span>Atur Tanggal & Materi STS & SAS</span>
+              </button>
+            </div>
+
+            {/* 3 Overview Information Cards for Sumatif */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-1">
+              {/* Card 1: STS */}
+              <div className="p-3 bg-gradient-to-br from-amber-50/90 to-amber-100/40 rounded-xl border border-amber-200/90">
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="text-xs font-black text-amber-950 flex items-center gap-1.5">
+                    <BookOpen className="w-3.5 h-3.5 text-amber-700" />
+                    <span>Sumatif Tengah Semester (STS)</span>
+                  </span>
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-white text-amber-800 border border-amber-200">
+                    Bobot 25%
+                  </span>
+                </div>
+                <div className="text-[11px] text-amber-900/80 mb-2">
+                  <div className="font-semibold truncate">
+                    Materi: {stsHeader.keterangan || 'Lingkup materi tengah semester'}
+                  </div>
+                  <div className="font-mono text-[10px] text-amber-700">
+                    Tgl: {stsHeader.tanggal ? formatDateShort(stsHeader.tanggal) : 'Belum diatur'} ({stsHeader.monthName})
+                  </div>
+                </div>
+                <div className="flex items-center justify-between text-xs pt-1.5 border-t border-amber-200/70 font-semibold text-amber-950">
+                  <span>Rata-rata Kelas: <strong className="font-black font-mono">{sumatifStats.avgSts ?? '-'}</strong></span>
+                  <span>Ternilai: <strong>{sumatifStats.stsCount} / {sumatifStats.totalStudents}</strong></span>
+                </div>
+              </div>
+
+              {/* Card 2: SAS */}
+              <div className="p-3 bg-gradient-to-br from-emerald-50/90 to-emerald-100/40 rounded-xl border border-emerald-200/90">
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="text-xs font-black text-emerald-950 flex items-center gap-1.5">
+                    <GraduationCap className="w-3.5 h-3.5 text-emerald-700" />
+                    <span>Sumatif Akhir Semester (SAS)</span>
+                  </span>
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-white text-emerald-800 border border-emerald-200">
+                    Bobot 25%
+                  </span>
+                </div>
+                <div className="text-[11px] text-emerald-900/80 mb-2">
+                  <div className="font-semibold truncate">
+                    Materi: {sasHeader.keterangan || 'Lingkup materi akhir semester'}
+                  </div>
+                  <div className="font-mono text-[10px] text-emerald-700">
+                    Tgl: {sasHeader.tanggal ? formatDateShort(sasHeader.tanggal) : 'Belum diatur'} ({sasHeader.monthName})
+                  </div>
+                </div>
+                <div className="flex items-center justify-between text-xs pt-1.5 border-t border-emerald-200/70 font-semibold text-emerald-950">
+                  <span>Rata-rata Kelas: <strong className="font-black font-mono">{sumatifStats.avgSas ?? '-'}</strong></span>
+                  <span>Ternilai: <strong>{sumatifStats.sasCount} / {sumatifStats.totalStudents}</strong></span>
+                </div>
+              </div>
+
+              {/* Card 3: Formula Kurikulum Merdeka */}
+              <div className="p-3 bg-gradient-to-br from-indigo-50/90 to-indigo-100/40 rounded-xl border border-indigo-200/90">
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="text-xs font-black text-indigo-950 flex items-center gap-1.5">
+                    <TrendingUp className="w-3.5 h-3.5 text-indigo-700" />
+                    <span>Formula Nilai Akhir (NA)</span>
+                  </span>
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-white text-indigo-800 border border-indigo-200">
+                    Rapor 100%
+                  </span>
+                </div>
+                <div className="text-[11px] text-indigo-900/90 font-medium mb-2">
+                  <strong>50%</strong> Rata Formatif + <strong>25%</strong> STS + <strong>25%</strong> SAS
+                </div>
+                <div className="flex items-center justify-between text-xs pt-1.5 border-t border-indigo-200/70 font-semibold text-indigo-950">
+                  <span>Rata-rata NA: <strong className="font-black font-mono">{averageScore}</strong></span>
+                  <span>Tuntas (≥{kkm}): <strong className="text-emerald-700 font-bold">{tuntasCount} siswa</strong></span>
+                </div>
+              </div>
+            </div>
+          </div>
         ) : (
-          <div className="mt-3 pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-600">
+          <div className="mt-3 pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-600 flex-wrap gap-2">
             <span className="font-semibold">
-              Mode Rekap Lengkap: Menampilkan seluruh 6 bulan penilaian (24 kolom nilai + 6 rata-rata bulanan).
+              Mode Rekap Lengkap: Menampilkan seluruh 24 Asesmen Formatif (6 bulan), rata-rata bulanan, serta Asesmen Sumatif (STS & SAS).
             </span>
             <span className="font-mono text-[11px] text-slate-400">
-              Total 24 Penilaian Semester {safeSemester}
+              Total 24 Formatif + 2 Sumatif Semester {safeSemester}
             </span>
           </div>
         )}
@@ -719,14 +1040,14 @@ export const GradesView: React.FC<GradesViewProps> = ({
         </div>
       </div>
 
-      {/* SPREADSHEET TABLE: 2 DISTINCT, NON-COLLIDING MODES */}
+      {/* SPREADSHEET TABLE: 3 DEDICATED, NON-COLLIDING MODES */}
       <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-xs">
         <div className="overflow-x-auto">
-          {activeMonthTab !== 'all' ? (
+          {typeof activeMonthTab === 'number' ? (
             /* ========================================================================= */
-            /* MODE 1: FOCUSED SINGLE MONTH VIEW (CLEAN, SPACIOUS, 4 COLUMNS)           */
+            /* MODE 1: FOCUSED SINGLE MONTH VIEW (4 FORMATIF COLUMNS + SUMATIF OVERVIEW) */
             /* ========================================================================= */
-            <table className="w-full text-xs text-left border-collapse min-w-[850px]">
+            <table className="w-full text-xs text-left border-collapse min-w-[980px]">
               <thead className="bg-slate-100/95 text-slate-700 font-bold uppercase tracking-wider text-[11px] border-b border-slate-200 sticky top-0 z-20">
                 {/* Row 1: Month Group Banner */}
                 <tr>
@@ -749,32 +1070,35 @@ export const GradesView: React.FC<GradesViewProps> = ({
                     L/P
                   </th>
 
-                  {/* 4 Assessment Columns Header Group for Active Month */}
+                  {/* 4 Formatif Columns Header Group for Active Month */}
                   <th
                     colSpan={4}
                     className="py-2.5 px-3 text-center border-r border-indigo-200 bg-indigo-50/90 text-indigo-950 font-black border-b"
                   >
                     <div className="flex items-center justify-center gap-2">
                       <CalendarDays className="w-4 h-4 text-indigo-600" />
-                      <span>BULAN {months[activeMonthTab].toUpperCase()} (4 PENILAIAN)</span>
+                      <span>ASESMEN FORMATIF - BULAN {months[activeMonthTab].toUpperCase()} (4 FORMATIF)</span>
                     </div>
                   </th>
 
-                  {/* Month Average */}
+                  {/* Month Formatif Average */}
                   <th
                     rowSpan={2}
-                    className="py-3 px-2.5 w-16 text-center border-r border-slate-200 bg-indigo-100/70 text-indigo-950 font-black"
+                    className="py-3 px-2.5 w-18 text-center border-r border-slate-200 bg-indigo-100/70 text-indigo-950 font-black"
                   >
-                    <span className="block text-[10px] uppercase text-indigo-700">Rata</span>
+                    <span className="block text-[10px] uppercase text-indigo-700">Rata Formatif</span>
                     <span className="text-xs">{months[activeMonthTab]}</span>
                   </th>
 
-                  {/* Semester Results Summary */}
+                  {/* Semester Results & Sumatif Group */}
                   <th
-                    colSpan={3}
-                    className="py-2.5 px-3 text-center border-r border-emerald-200 bg-emerald-50 text-emerald-950 font-black border-b"
+                    colSpan={6}
+                    className="py-2 px-3 text-center border-r border-emerald-200 bg-emerald-50/90 text-emerald-950 font-black border-b"
                   >
-                    HASIL SEMESTER
+                    <div className="flex items-center justify-center gap-1.5">
+                      <Award className="w-3.5 h-3.5 text-emerald-700" />
+                      <span>HASIL RAPOR (KURIKULUM MERDEKA)</span>
+                    </div>
                   </th>
 
                   {/* Notes */}
@@ -783,7 +1107,7 @@ export const GradesView: React.FC<GradesViewProps> = ({
                   </th>
                 </tr>
 
-                {/* Row 2: Detailed Subheaders for the 4 Columns */}
+                {/* Row 2: Detailed Subheaders for Formatif & Sumatif */}
                 <tr className="bg-slate-50 text-slate-700">
                   {singleMonthHeaders.map((header, cIdx) => (
                     <th
@@ -792,7 +1116,7 @@ export const GradesView: React.FC<GradesViewProps> = ({
                     >
                       <div className="flex items-center justify-between mb-1">
                         <span className="text-[11px] font-black text-indigo-950">
-                          {header.colLabel || `Nilai ${cIdx + 1}`}
+                          {header.colLabel || `Formatif ${cIdx + 1}`}
                         </span>
                         <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-white text-slate-600 border border-slate-200">
                           {formatDateShort(header.tanggal)}
@@ -800,21 +1124,59 @@ export const GradesView: React.FC<GradesViewProps> = ({
                       </div>
                       <div
                         className="text-[10px] font-semibold text-slate-600 truncate max-w-[100px] mx-auto"
-                        title={header.keterangan || 'Penilaian'}
+                        title={header.keterangan || 'Asesmen Formatif'}
                       >
-                        {header.keterangan || 'Tugas/UH'}
+                        {header.keterangan || `Formatif ${cIdx + 1}`}
                       </div>
                     </th>
                   ))}
 
+                  {/* Formatif Semester Average */}
+                  <th
+                    className="py-1.5 px-1.5 w-16 text-center border-r border-slate-200 bg-indigo-50 font-black text-indigo-950 text-[10px]"
+                    title="Rata-rata seluruh asesmen formatif semester (Bobot 50%)"
+                  >
+                    <span className="block">R.Form</span>
+                    <span className="text-[8px] font-normal text-indigo-600">(50%)</span>
+                  </th>
+
+                  {/* Sumatif Tengah (STS) */}
+                  <th
+                    className={`py-1.5 px-1.5 w-16 text-center border-r border-slate-200 font-black text-[10px] ${
+                      activeMonthTab === 2
+                        ? 'bg-amber-200/80 text-amber-950 ring-1 ring-amber-400'
+                        : 'bg-amber-50 text-amber-950'
+                    }`}
+                    title="Asesmen Sumatif Tengah Semester (Bobot 25%)"
+                  >
+                    <span className="block">STS</span>
+                    <span className="text-[8px] font-normal text-amber-800">(25%)</span>
+                  </th>
+
+                  {/* Sumatif Akhir (SAS) */}
+                  <th
+                    className={`py-1.5 px-1.5 w-16 text-center border-r border-slate-200 font-black text-[10px] ${
+                      activeMonthTab === 5
+                        ? 'bg-emerald-200/80 text-emerald-950 ring-1 ring-emerald-400'
+                        : 'bg-emerald-50 text-emerald-950'
+                    }`}
+                    title="Asesmen Sumatif Akhir Semester (Bobot 25%)"
+                  >
+                    <span className="block">SAS</span>
+                    <span className="text-[8px] font-normal text-emerald-800">(25%)</span>
+                  </th>
+
                   {/* Final Results Subheaders */}
-                  <th className="py-1.5 px-2 w-14 text-center border-r border-slate-200 bg-emerald-100/70 text-emerald-950 font-black text-[10px]">
+                  <th
+                    className="py-1.5 px-1.5 w-14 text-center border-r border-slate-200 bg-emerald-100/80 text-emerald-950 font-black text-[10px]"
+                    title="Nilai Akhir Rapor: 50% Formatif + 25% STS + 25% SAS"
+                  >
                     NA
                   </th>
-                  <th className="py-1.5 px-2 w-12 text-center border-r border-slate-200 bg-emerald-50 text-slate-700 font-bold text-[10px]">
+                  <th className="py-1.5 px-1 w-12 text-center border-r border-slate-200 bg-emerald-50 text-slate-700 font-bold text-[10px]">
                     Grade
                   </th>
-                  <th className="py-1.5 px-2 w-20 text-center border-r border-slate-200 bg-emerald-50 text-slate-700 font-bold text-[10px]">
+                  <th className="py-1.5 px-1.5 w-18 text-center border-r border-slate-200 bg-emerald-50 text-slate-700 font-bold text-[10px]">
                     Status
                   </th>
                 </tr>
@@ -824,7 +1186,7 @@ export const GradesView: React.FC<GradesViewProps> = ({
                 {filteredStudents.length === 0 ? (
                   <tr>
                     <td
-                      colSpan={12}
+                      colSpan={15}
                       className="text-center py-12 text-slate-400 font-medium"
                     >
                       Tidak ada siswa yang cocok dengan filter pencarian.
@@ -891,7 +1253,7 @@ export const GradesView: React.FC<GradesViewProps> = ({
                           </span>
                         </td>
 
-                        {/* 4 Score Inputs */}
+                        {/* 4 Formatif Score Inputs */}
                         {singleMonthHeaders.map((header) => {
                           let scoreVal = g.monthlyGrades?.[header.key] ?? null;
 
@@ -962,13 +1324,382 @@ export const GradesView: React.FC<GradesViewProps> = ({
                           )}
                         </td>
 
+                        {/* Rata Formatif Semester (50%) */}
+                        <td className="py-2.5 px-1.5 text-center font-black font-mono text-xs border-r border-slate-200 bg-indigo-50/30 text-indigo-900">
+                          {calc?.rataFormatif !== null && calc?.rataFormatif !== undefined ? (
+                            <span>{calc.rataFormatif}</span>
+                          ) : (
+                            <span className="text-slate-300">-</span>
+                          )}
+                        </td>
+
+                        {/* Sumatif Tengah Semester (STS) */}
+                        <td
+                          className={`p-1 text-center border-r border-slate-200 ${
+                            activeMonthTab === 2 ? 'bg-amber-100/40' : 'bg-amber-50/20'
+                          }`}
+                        >
+                          <input
+                            type="number"
+                            min={0}
+                            max={100}
+                            value={
+                              calc?.sumatifTengah !== null && calc?.sumatifTengah !== undefined
+                                ? calc.sumatifTengah
+                                : ''
+                            }
+                            onChange={(e) =>
+                              handleSumatifChange(student.id, 'sumatifTengah', e.target.value)
+                            }
+                            placeholder="-"
+                            title="Asesmen Sumatif Tengah Semester (STS)"
+                            className={`w-14 text-center font-bold text-xs py-1 rounded border focus:ring-1 focus:ring-amber-500 focus:outline-none ${
+                              calc?.sumatifTengah !== null && calc?.sumatifTengah !== undefined
+                                ? calc.sumatifTengah < kkm
+                                  ? 'bg-rose-50 border-rose-300 text-rose-700 font-black'
+                                  : 'bg-white border-amber-300 text-amber-950 font-black'
+                                : 'bg-white/80 border-slate-200 text-slate-400'
+                            }`}
+                          />
+                        </td>
+
+                        {/* Sumatif Akhir Semester (SAS) */}
+                        <td
+                          className={`p-1 text-center border-r border-slate-200 ${
+                            activeMonthTab === 5 ? 'bg-emerald-100/40' : 'bg-emerald-50/20'
+                          }`}
+                        >
+                          <input
+                            type="number"
+                            min={0}
+                            max={100}
+                            value={
+                              calc?.sumatifAkhir !== null && calc?.sumatifAkhir !== undefined
+                                ? calc.sumatifAkhir
+                                : ''
+                            }
+                            onChange={(e) =>
+                              handleSumatifChange(student.id, 'sumatifAkhir', e.target.value)
+                            }
+                            placeholder="-"
+                            title="Asesmen Sumatif Akhir Semester (SAS)"
+                            className={`w-14 text-center font-bold text-xs py-1 rounded border focus:ring-1 focus:ring-emerald-500 focus:outline-none ${
+                              calc?.sumatifAkhir !== null && calc?.sumatifAkhir !== undefined
+                                ? calc.sumatifAkhir < kkm
+                                  ? 'bg-rose-50 border-rose-300 text-rose-700 font-black'
+                                  : 'bg-white border-emerald-300 text-emerald-950 font-black'
+                                : 'bg-white/80 border-slate-200 text-slate-400'
+                            }`}
+                          />
+                        </td>
+
                         {/* Final NA */}
-                        <td className="py-2.5 px-2 text-center font-black font-mono text-xs border-r border-slate-200 bg-emerald-50/40 text-slate-900">
+                        <td className="py-2.5 px-2 text-center font-black font-mono text-xs border-r border-slate-200 bg-emerald-50/50 text-slate-900">
                           {calc?.nilaiAkhir || 0}
                         </td>
 
                         {/* Predikat */}
-                        <td className="py-2.5 px-2 text-center font-extrabold text-xs border-r border-slate-200">
+                        <td className="py-2.5 px-1.5 text-center font-extrabold text-xs border-r border-slate-200">
+                          <span
+                            className={`w-6 h-6 rounded-full inline-flex items-center justify-center font-black text-xs ${
+                              calc?.predikat === 'A'
+                                ? 'bg-emerald-100 text-emerald-800'
+                                : calc?.predikat === 'B'
+                                ? 'bg-blue-100 text-blue-800'
+                                : calc?.predikat === 'C'
+                                ? 'bg-amber-100 text-amber-800'
+                                : 'bg-rose-100 text-rose-800'
+                            }`}
+                          >
+                            {calc?.predikat || 'D'}
+                          </span>
+                        </td>
+
+                        {/* Status */}
+                        <td className="py-2.5 px-1.5 text-center border-r border-slate-200">
+                          <span
+                            className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-extrabold border ${
+                              calc?.isTuntas
+                                ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                                : 'bg-rose-50 text-rose-800 border-rose-200'
+                            }`}
+                          >
+                            {calc?.isTuntas ? 'Tuntas' : 'Remedial'}
+                          </span>
+                        </td>
+
+                        {/* Notes */}
+                        <td className="py-2 px-3">
+                          <input
+                            type="text"
+                            value={g.catatan || ''}
+                            onChange={(e) => handleNoteChange(student.id, e.target.value)}
+                            placeholder="Catatan perkembangan..."
+                            className="w-full text-xs px-2.5 py-1 border border-slate-200 rounded-lg bg-slate-50/60 focus:bg-white focus:ring-1 focus:ring-indigo-500 focus:outline-none"
+                          />
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          ) : activeMonthTab === 'sumatif' ? (
+            /* ========================================================================= */
+            /* MODE 2: DEDICATED ASESMEN SUMATIF VIEW (STS & SAS WITH FORMULA BREAKDOWN) */
+            /* ========================================================================= */
+            <table className="w-full text-xs text-left border-collapse min-w-[900px]">
+              <thead className="bg-slate-100/95 text-slate-700 font-bold uppercase tracking-wider text-[11px] border-b border-slate-200 sticky top-0 z-20">
+                <tr>
+                  <th
+                    rowSpan={2}
+                    className="sticky left-0 bg-slate-100 z-30 py-3 px-3 w-12 text-center border-r border-slate-200"
+                  >
+                    No
+                  </th>
+                  <th
+                    rowSpan={2}
+                    className="sticky left-12 bg-slate-100 z-30 py-3 px-4 min-w-[220px] border-r border-slate-200 shadow-[4px_0_6px_-2px_rgba(0,0,0,0.06)]"
+                  >
+                    Nama Siswa
+                  </th>
+                  <th
+                    rowSpan={2}
+                    className="py-3 px-2 w-12 text-center border-r border-slate-200"
+                  >
+                    L/P
+                  </th>
+
+                  {/* Asesmen Formatif Column */}
+                  <th
+                    className="py-2 px-3 text-center border-r border-indigo-200 bg-indigo-50/90 text-indigo-950 font-black"
+                  >
+                    <div className="flex items-center justify-center gap-1.5">
+                      <CalendarDays className="w-3.5 h-3.5 text-indigo-600" />
+                      <span>RATA-RATA FORMATIF</span>
+                    </div>
+                  </th>
+
+                  {/* Asesmen Sumatif Tengah (STS) */}
+                  <th
+                    className="py-2 px-3 text-center border-r border-amber-200 bg-amber-100/80 text-amber-950 font-black"
+                  >
+                    <div className="flex items-center justify-center gap-1.5">
+                      <BookOpen className="w-3.5 h-3.5 text-amber-700" />
+                      <span>SUMATIF TENGAH SEMESTER (STS)</span>
+                    </div>
+                  </th>
+
+                  {/* Asesmen Sumatif Akhir (SAS) */}
+                  <th
+                    className="py-2 px-3 text-center border-r border-emerald-200 bg-emerald-100/80 text-emerald-950 font-black"
+                  >
+                    <div className="flex items-center justify-center gap-1.5">
+                      <GraduationCap className="w-3.5 h-3.5 text-emerald-700" />
+                      <span>SUMATIF AKHIR SEMESTER (SAS)</span>
+                    </div>
+                  </th>
+
+                  {/* Hasil Rapor */}
+                  <th
+                    colSpan={3}
+                    className="py-2 px-3 text-center border-r border-indigo-200 bg-indigo-50 text-indigo-950 font-black border-b"
+                  >
+                    HASIL AKHIR RAPOR
+                  </th>
+
+                  {/* Notes */}
+                  <th rowSpan={2} className="py-3 px-4 min-w-[180px]">
+                    Catatan / Evaluasi Siswa
+                  </th>
+                </tr>
+
+                {/* Subheaders with Weightings & Dates */}
+                <tr className="bg-slate-50 text-slate-700 text-[10px]">
+                  {/* Formatif Subheader */}
+                  <th className="p-2 w-32 border-r border-slate-200 text-center bg-indigo-50/50">
+                    <div className="font-extrabold text-indigo-950">Bobot 50%</div>
+                    <div className="text-[9px] text-slate-500 font-normal">Rata 6 Bulan (24 Formatif)</div>
+                  </th>
+
+                  {/* STS Subheader */}
+                  <th className="p-2 w-36 border-r border-slate-200 text-center bg-amber-50/70">
+                    <div className="flex items-center justify-between mb-0.5">
+                      <span className="font-black text-amber-950">Bobot 25%</span>
+                      <span className="text-[9px] font-mono px-1 py-0.2 rounded bg-white text-slate-600 border border-slate-200">
+                        {stsHeader.tanggal ? formatDateShort(stsHeader.tanggal) : '-'}
+                      </span>
+                    </div>
+                    <div className="text-[9px] text-slate-500 truncate" title={stsHeader.keterangan}>
+                      {stsHeader.keterangan || 'Materi STS'}
+                    </div>
+                  </th>
+
+                  {/* SAS Subheader */}
+                  <th className="p-2 w-36 border-r border-slate-200 text-center bg-emerald-50/70">
+                    <div className="flex items-center justify-between mb-0.5">
+                      <span className="font-black text-emerald-950">Bobot 25%</span>
+                      <span className="text-[9px] font-mono px-1 py-0.2 rounded bg-white text-slate-600 border border-slate-200">
+                        {sasHeader.tanggal ? formatDateShort(sasHeader.tanggal) : '-'}
+                      </span>
+                    </div>
+                    <div className="text-[9px] text-slate-500 truncate" title={sasHeader.keterangan}>
+                      {sasHeader.keterangan || 'Materi SAS'}
+                    </div>
+                  </th>
+
+                  {/* NA, Grade, Status Subheaders */}
+                  <th className="py-1.5 px-2 w-16 text-center border-r border-slate-200 bg-emerald-100/80 font-black text-emerald-950">
+                    NA
+                  </th>
+                  <th className="py-1.5 px-1.5 w-12 text-center border-r border-slate-200 bg-emerald-50 font-bold text-slate-700">
+                    Grade
+                  </th>
+                  <th className="py-1.5 px-2 w-20 text-center border-r border-slate-200 bg-emerald-50 font-bold text-slate-700">
+                    Status
+                  </th>
+                </tr>
+              </thead>
+
+              <tbody className="divide-y divide-slate-100 text-slate-800">
+                {filteredStudents.length === 0 ? (
+                  <tr>
+                    <td
+                      colSpan={9}
+                      className="text-center py-12 text-slate-400 font-medium"
+                    >
+                      Tidak ada siswa yang cocok dengan filter pencarian.
+                    </td>
+                  </tr>
+                ) : (
+                  filteredStudents.map((student) => {
+                    const g = getStudentGrade(student.id);
+                    const calc = studentCalculations.get(student.id);
+
+                    return (
+                      <tr
+                        key={student.id}
+                        className="hover:bg-amber-50/30 transition-colors group"
+                      >
+                        {/* No */}
+                        <td className="sticky left-0 bg-white group-hover:bg-amber-50/50 z-10 py-2.5 px-3 text-center font-medium text-slate-500 border-r border-slate-200">
+                          {student.no}
+                        </td>
+
+                        {/* Nama Siswa */}
+                        <td className="sticky left-12 bg-white group-hover:bg-amber-50/50 z-10 py-2.5 px-4 font-bold text-slate-900 border-r border-slate-200 shadow-[4px_0_6px_-2px_rgba(0,0,0,0.06)]">
+                          {isQuickEditMode ? (
+                            <input
+                              type="text"
+                              value={student.nama}
+                              onChange={(e) =>
+                                onUpdateStudentField?.(student.id, 'nama', e.target.value)
+                              }
+                              placeholder="Nama Siswa..."
+                              className="w-full font-bold text-xs px-2 py-1 border border-amber-300 rounded bg-amber-50/50 text-slate-900 focus:ring-1 focus:ring-amber-500 focus:outline-none"
+                            />
+                          ) : (
+                            <div
+                              onDoubleClick={() => onEditStudent?.(student)}
+                              className="cursor-pointer hover:text-indigo-600 transition-colors"
+                            >
+                              {student.nama}
+                            </div>
+                          )}
+                          <div className="text-[10px] text-slate-400 font-mono font-normal">
+                            NISN: {student.nisn || '-'}
+                          </div>
+                        </td>
+
+                        {/* L/P */}
+                        <td className="py-2.5 px-2 text-center border-r border-slate-200">
+                          <span
+                            className={`w-6 h-6 rounded-md font-extrabold text-xs inline-flex items-center justify-center ${
+                              student.gender === 'L'
+                                ? 'text-blue-700 bg-blue-50 border border-blue-200'
+                                : 'text-pink-700 bg-pink-50 border border-pink-200'
+                            }`}
+                          >
+                            {student.gender}
+                          </span>
+                        </td>
+
+                        {/* Rata Formatif (50%) */}
+                        <td className="py-2.5 px-2 text-center font-black font-mono text-xs border-r border-slate-200 bg-indigo-50/40 text-indigo-950">
+                          {calc?.rataFormatif !== null && calc?.rataFormatif !== undefined ? (
+                            <span
+                              className={`px-2 py-1 rounded-md text-xs font-black ${
+                                calc.rataFormatif >= kkm
+                                  ? 'bg-indigo-100 text-indigo-900'
+                                  : 'bg-rose-100 text-rose-800'
+                              }`}
+                            >
+                              {calc.rataFormatif}
+                            </span>
+                          ) : (
+                            <span className="text-slate-300">-</span>
+                          )}
+                        </td>
+
+                        {/* Asesmen Sumatif Tengah (STS) (25%) */}
+                        <td className="p-2 text-center border-r border-slate-200 bg-amber-50/30">
+                          <input
+                            type="number"
+                            min={0}
+                            max={100}
+                            value={
+                              calc?.sumatifTengah !== null && calc?.sumatifTengah !== undefined
+                                ? calc.sumatifTengah
+                                : ''
+                            }
+                            onChange={(e) =>
+                              handleSumatifChange(student.id, 'sumatifTengah', e.target.value)
+                            }
+                            placeholder="-"
+                            title="Masukkan Nilai Sumatif Tengah Semester (STS)"
+                            className={`w-20 text-center font-black text-xs py-1.5 rounded-lg border focus:ring-2 focus:ring-amber-500 focus:outline-none transition-all ${
+                              calc?.sumatifTengah !== null && calc?.sumatifTengah !== undefined
+                                ? calc.sumatifTengah < kkm
+                                  ? 'bg-rose-50 border-rose-300 text-rose-700'
+                                  : 'bg-white border-amber-300 text-amber-950 shadow-2xs'
+                                : 'bg-white/80 border-slate-200 text-slate-400 hover:bg-white'
+                            }`}
+                          />
+                        </td>
+
+                        {/* Asesmen Sumatif Akhir (SAS) (25%) */}
+                        <td className="p-2 text-center border-r border-slate-200 bg-emerald-50/30">
+                          <input
+                            type="number"
+                            min={0}
+                            max={100}
+                            value={
+                              calc?.sumatifAkhir !== null && calc?.sumatifAkhir !== undefined
+                                ? calc.sumatifAkhir
+                                : ''
+                            }
+                            onChange={(e) =>
+                              handleSumatifChange(student.id, 'sumatifAkhir', e.target.value)
+                            }
+                            placeholder="-"
+                            title="Masukkan Nilai Sumatif Akhir Semester (SAS)"
+                            className={`w-20 text-center font-black text-xs py-1.5 rounded-lg border focus:ring-2 focus:ring-emerald-500 focus:outline-none transition-all ${
+                              calc?.sumatifAkhir !== null && calc?.sumatifAkhir !== undefined
+                                ? calc.sumatifAkhir < kkm
+                                  ? 'bg-rose-50 border-rose-300 text-rose-700'
+                                  : 'bg-white border-emerald-300 text-emerald-950 shadow-2xs'
+                                : 'bg-white/80 border-slate-200 text-slate-400 hover:bg-white'
+                            }`}
+                          />
+                        </td>
+
+                        {/* Final NA */}
+                        <td className="py-2.5 px-2 text-center font-black font-mono text-sm border-r border-slate-200 bg-emerald-50/60 text-slate-900">
+                          {calc?.nilaiAkhir || 0}
+                        </td>
+
+                        {/* Predikat */}
+                        <td className="py-2.5 px-1.5 text-center font-extrabold text-xs border-r border-slate-200">
                           <span
                             className={`w-6 h-6 rounded-full inline-flex items-center justify-center font-black text-xs ${
                               calc?.predikat === 'A'
@@ -1015,9 +1746,9 @@ export const GradesView: React.FC<GradesViewProps> = ({
             </table>
           ) : (
             /* ========================================================================= */
-            /* MODE 2: REKAP SEMESTER / ALL MONTHS (PERFECTLY ALIGNED 30 COLUMNS)        */
+            /* MODE 3: REKAP SEMESTER LENGKAP (24 FORMATIF + 6 RATA BULAN + STS + SAS)   */
             /* ========================================================================= */
-            <table className="w-full text-xs text-left border-collapse min-w-[1600px]">
+            <table className="w-full text-xs text-left border-collapse min-w-[1750px]">
               <thead className="bg-slate-100/95 text-slate-700 font-bold uppercase tracking-wider text-[11px] border-b border-slate-200 sticky top-0 z-20">
                 {/* Row 1: Month Grouping Headers */}
                 <tr>
@@ -1040,7 +1771,7 @@ export const GradesView: React.FC<GradesViewProps> = ({
                     L/P
                   </th>
 
-                  {/* 6 Months Groups, each with colSpan 5 (4 scores + 1 average) */}
+                  {/* 6 Months Groups, each with colSpan 5 (4 formatif + 1 average) */}
                   {months.map((mName, mIdx) => (
                     <th
                       key={mIdx}
@@ -1055,12 +1786,12 @@ export const GradesView: React.FC<GradesViewProps> = ({
                     </th>
                   ))}
 
-                  {/* Hasil Semester */}
+                  {/* Hasil Semester (R.Form, STS, SAS, NA, Grade, Status) */}
                   <th
-                    colSpan={3}
+                    colSpan={6}
                     className="py-2 px-2 text-center border-r border-emerald-200 bg-emerald-50 text-emerald-950 font-black border-b"
                   >
-                    HASIL SEMESTER
+                    HASIL SEMESTER (KURIKULUM MERDEKA)
                   </th>
 
                   <th rowSpan={2} className="py-3 px-3 min-w-[170px]">
@@ -1068,7 +1799,7 @@ export const GradesView: React.FC<GradesViewProps> = ({
                   </th>
                 </tr>
 
-                {/* Row 2: Sub-columns (N1, N2, N3, N4, Rata for each month) */}
+                {/* Row 2: Sub-columns */}
                 <tr className="bg-slate-50 text-[10px] text-slate-700 font-bold border-b border-slate-200">
                   {months.map((mName, mIdx) => (
                     <React.Fragment key={`sub-${mIdx}`}>
@@ -1081,9 +1812,9 @@ export const GradesView: React.FC<GradesViewProps> = ({
                             className={`py-1.5 px-1 w-14 text-center border-r border-slate-200 ${
                               mIdx % 2 === 0 ? 'bg-indigo-50/40' : 'bg-sky-50/40'
                             }`}
-                            title={`${mName} - ${h?.colLabel || `Nilai ${cIdx + 1}`}: ${h?.keterangan || ''} (${h?.tanggal || '-'})`}
+                            title={`${mName} - ${h?.colLabel || `Formatif ${cIdx + 1}`}: ${h?.keterangan || ''} (${h?.tanggal || '-'})`}
                           >
-                            <span className="block text-[10px] font-black">{h?.colLabel || `N${cIdx + 1}`}</span>
+                            <span className="block text-[10px] font-black">{h?.colLabel || `F${cIdx + 1}`}</span>
                             <span className="block text-[8px] font-mono text-slate-400">
                               {formatDateShort(h?.tanggal)}
                             </span>
@@ -1104,8 +1835,32 @@ export const GradesView: React.FC<GradesViewProps> = ({
                     </React.Fragment>
                   ))}
 
-                  {/* Final Results Subheaders */}
-                  <th className="py-1.5 px-1 w-14 text-center border-r border-slate-200 bg-emerald-100/70 font-black text-emerald-950">
+                  {/* Formatif Semester Average */}
+                  <th
+                    className="py-1.5 px-1 w-14 text-center border-r border-slate-200 bg-indigo-50 font-black text-indigo-950"
+                    title="Rata-rata Seluruh Asesmen Formatif (50%)"
+                  >
+                    R.Form
+                  </th>
+
+                  {/* STS */}
+                  <th
+                    className="py-1.5 px-1 w-14 text-center border-r border-slate-200 bg-amber-100/70 font-black text-amber-950"
+                    title="Asesmen Sumatif Tengah Semester (25%)"
+                  >
+                    STS
+                  </th>
+
+                  {/* SAS */}
+                  <th
+                    className="py-1.5 px-1 w-14 text-center border-r border-slate-200 bg-emerald-100/70 font-black text-emerald-950"
+                    title="Asesmen Sumatif Akhir Semester (25%)"
+                  >
+                    SAS
+                  </th>
+
+                  {/* Final NA, Grade, Status */}
+                  <th className="py-1.5 px-1 w-14 text-center border-r border-slate-200 bg-emerald-200/80 font-black text-emerald-950">
                     NA
                   </th>
                   <th className="py-1.5 px-1 w-12 text-center border-r border-slate-200 bg-emerald-50 font-bold text-slate-700">
@@ -1120,7 +1875,7 @@ export const GradesView: React.FC<GradesViewProps> = ({
               <tbody className="divide-y divide-slate-100 text-slate-800">
                 {filteredStudents.length === 0 ? (
                   <tr>
-                    <td colSpan={37} className="text-center py-12 text-slate-400">
+                    <td colSpan={40} className="text-center py-12 text-slate-400">
                       Tidak ada siswa yang cocok dengan filter.
                     </td>
                   </tr>
@@ -1236,8 +1991,69 @@ export const GradesView: React.FC<GradesViewProps> = ({
                           );
                         })}
 
+                        {/* Formatif Semester Average */}
+                        <td className="py-2 px-1 text-center font-black font-mono text-xs border-r border-slate-200 bg-indigo-50/40 text-indigo-900">
+                          {calc?.rataFormatif !== null && calc?.rataFormatif !== undefined ? (
+                            <span>{calc.rataFormatif}</span>
+                          ) : (
+                            <span className="text-slate-300">-</span>
+                          )}
+                        </td>
+
+                        {/* STS Score Input */}
+                        <td className="p-1 text-center border-r border-slate-200 bg-amber-50/30">
+                          <input
+                            type="number"
+                            min={0}
+                            max={100}
+                            value={
+                              calc?.sumatifTengah !== null && calc?.sumatifTengah !== undefined
+                                ? calc.sumatifTengah
+                                : ''
+                            }
+                            onChange={(e) =>
+                              handleSumatifChange(student.id, 'sumatifTengah', e.target.value)
+                            }
+                            placeholder="-"
+                            title="Asesmen Sumatif Tengah Semester (STS)"
+                            className={`w-12 text-center font-bold text-xs py-1 rounded border focus:ring-1 focus:ring-amber-500 focus:outline-none ${
+                              calc?.sumatifTengah !== null && calc?.sumatifTengah !== undefined
+                                ? calc.sumatifTengah < kkm
+                                  ? 'bg-rose-50 border-rose-300 text-rose-700'
+                                  : 'bg-white border-amber-300 text-amber-950'
+                                : 'bg-white/60 border-slate-200 text-slate-400'
+                            }`}
+                          />
+                        </td>
+
+                        {/* SAS Score Input */}
+                        <td className="p-1 text-center border-r border-slate-200 bg-emerald-50/30">
+                          <input
+                            type="number"
+                            min={0}
+                            max={100}
+                            value={
+                              calc?.sumatifAkhir !== null && calc?.sumatifAkhir !== undefined
+                                ? calc.sumatifAkhir
+                                : ''
+                            }
+                            onChange={(e) =>
+                              handleSumatifChange(student.id, 'sumatifAkhir', e.target.value)
+                            }
+                            placeholder="-"
+                            title="Asesmen Sumatif Akhir Semester (SAS)"
+                            className={`w-12 text-center font-bold text-xs py-1 rounded border focus:ring-1 focus:ring-emerald-500 focus:outline-none ${
+                              calc?.sumatifAkhir !== null && calc?.sumatifAkhir !== undefined
+                                ? calc.sumatifAkhir < kkm
+                                  ? 'bg-rose-50 border-rose-300 text-rose-700'
+                                  : 'bg-white border-emerald-300 text-emerald-950'
+                                : 'bg-white/60 border-slate-200 text-slate-400'
+                            }`}
+                          />
+                        </td>
+
                         {/* Final NA */}
-                        <td className="py-2 px-1 text-center font-black font-mono text-xs border-r border-slate-200 bg-emerald-50/40 text-slate-900">
+                        <td className="py-2 px-1 text-center font-black font-mono text-xs border-r border-slate-200 bg-emerald-50/50 text-slate-900">
                           {calc?.nilaiAkhir || 0}
                         </td>
 
@@ -1291,7 +2107,7 @@ export const GradesView: React.FC<GradesViewProps> = ({
         </div>
       </div>
 
-      {/* MODAL: ATUR TANGGAL & MATERI PENILAIAN */}
+      {/* MODAL: ATUR TANGGAL & MATERI PENILAIAN (FORMATIF & SUMATIF) */}
       {isHeaderModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-xs p-4 animate-in fade-in duration-150">
           <div className="bg-white rounded-2xl max-w-2xl w-full p-6 shadow-2xl border border-slate-200 space-y-4 max-h-[90vh] overflow-y-auto">
@@ -1302,10 +2118,10 @@ export const GradesView: React.FC<GradesViewProps> = ({
                 </div>
                 <div>
                   <h3 className="text-base font-black text-slate-900">
-                    Pengaturan Header Kolom Penilaian
+                    Pengaturan Asesmen Formatif & Sumatif
                   </h3>
                   <p className="text-xs text-slate-500">
-                    Atur tanggal pelaksanaan dan keterangan materi untuk 4 kolom penilaian per bulan.
+                    Atur tanggal pelaksanaan dan materi untuk Asesmen Formatif bulanan serta Sumatif Tengah/Akhir Semester.
                   </p>
                 </div>
               </div>
@@ -1318,126 +2134,268 @@ export const GradesView: React.FC<GradesViewProps> = ({
               </button>
             </div>
 
-            {/* Select Month to Edit */}
-            <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1.5">
-                Pilih Bulan:
-              </label>
-              <div className="grid grid-cols-3 sm:grid-cols-6 gap-1.5">
-                {months.map((mName, idx) => (
-                  <button
-                    key={idx}
-                    type="button"
-                    onClick={() => setEditingMonthIndex(idx)}
-                    className={`py-2 px-2 text-xs font-bold rounded-xl border transition-all cursor-pointer text-center ${
-                      editingMonthIndex === idx
-                        ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs'
-                        : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200'
-                    }`}
-                  >
-                    {mName}
-                  </button>
-                ))}
-              </div>
+            {/* Modal Navigation Tabs */}
+            <div className="flex rounded-xl bg-slate-100 p-1 text-xs font-bold">
+              <button
+                type="button"
+                onClick={() => setModalTab('formatif')}
+                className={`flex-1 py-2 rounded-lg transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                  modalTab === 'formatif'
+                    ? 'bg-white text-indigo-900 shadow-2xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <CalendarDays className="w-4 h-4 text-indigo-600" />
+                <span>Asesmen Formatif (Bulanan)</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setModalTab('sumatif')}
+                className={`flex-1 py-2 rounded-lg transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                  modalTab === 'sumatif'
+                    ? 'bg-white text-amber-900 shadow-2xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <Award className="w-4 h-4 text-amber-600" />
+                <span>Asesmen Sumatif (STS & SAS)</span>
+              </button>
             </div>
 
-            {/* Quick Preset Buttons */}
-            <div className="flex items-center justify-between gap-2 p-2.5 rounded-xl bg-slate-50 border border-slate-200 text-xs">
-              <span className="font-bold text-slate-600">
-                Preset Otomatis Bulan {months[editingMonthIndex]}:
-              </span>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => applyMonthPresets(editingMonthIndex, 'formatif')}
-                  className="px-2.5 py-1 bg-white hover:bg-indigo-50 text-indigo-700 font-bold border border-indigo-200 rounded-lg shadow-2xs transition-colors cursor-pointer"
-                >
-                  Format Formatif (1-4)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => applyMonthPresets(editingMonthIndex, 'tugas_uh')}
-                  className="px-2.5 py-1 bg-white hover:bg-indigo-50 text-indigo-700 font-bold border border-indigo-200 rounded-lg shadow-2xs transition-colors cursor-pointer"
-                >
-                  Format Tugas & UH
-                </button>
-              </div>
-            </div>
+            {modalTab === 'formatif' ? (
+              <div className="space-y-4">
+                {/* Select Month to Edit */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                    Pilih Bulan Asesmen Formatif:
+                  </label>
+                  <div className="grid grid-cols-3 sm:grid-cols-6 gap-1.5">
+                    {months.map((mName, idx) => (
+                      <button
+                        key={idx}
+                        type="button"
+                        onClick={() => setEditingMonthIndex(idx)}
+                        className={`py-2 px-2 text-xs font-bold rounded-xl border transition-all cursor-pointer text-center ${
+                          editingMonthIndex === idx
+                            ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs'
+                            : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200'
+                        }`}
+                      >
+                        {mName}
+                      </button>
+                    ))}
+                  </div>
+                </div>
 
-            {/* 4 Columns for the selected month */}
-            <div className="space-y-3 pt-1">
-              <h4 className="text-xs font-extrabold text-slate-800 uppercase tracking-wider">
-                4 Kolom Penilaian Bulan {months[editingMonthIndex]}
-              </h4>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {[0, 1, 2, 3].map((cIdx) => {
-                  const key = `m${editingMonthIndex}_c${cIdx}`;
-                  const h =
-                    columnHeaders.find((item) => item.key === key) || {
-                      key,
-                      monthIndex: editingMonthIndex,
-                      monthName: months[editingMonthIndex],
-                      colIndex: cIdx,
-                      colLabel: `Nilai ${cIdx + 1}`,
-                      tanggal: '',
-                      keterangan: '',
-                    };
-
-                  return (
-                    <div
-                      key={cIdx}
-                      className="p-3.5 rounded-xl border border-slate-200 bg-slate-50/50 space-y-2.5"
+                {/* Quick Preset Buttons */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-2.5 rounded-xl bg-slate-50 border border-slate-200 text-xs">
+                  <span className="font-bold text-slate-600">
+                    Preset Formatif Bulan {months[editingMonthIndex]}:
+                  </span>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <button
+                      type="button"
+                      onClick={() => applyMonthPresets(editingMonthIndex, 'formatif_standard')}
+                      className="px-2.5 py-1 bg-white hover:bg-indigo-50 text-indigo-700 font-bold border border-indigo-200 rounded-lg shadow-2xs transition-colors cursor-pointer"
                     >
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-black text-indigo-900 bg-indigo-100/80 px-2 py-0.5 rounded-md">
-                          Kolom {cIdx + 1}
-                        </span>
-                        <input
-                          type="text"
-                          value={h.colLabel}
-                          onChange={(e) =>
-                            handleUpdateHeader(key, 'colLabel', e.target.value)
-                          }
-                          placeholder="Label kolom..."
-                          className="text-[11px] font-bold text-slate-700 bg-white border border-slate-300 rounded px-2 py-0.5 w-28 text-right focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                          title="Ubah label kolom (cth: Nilai 1 / Tugas / Praktik)"
-                        />
-                      </div>
+                      Formatif (1-4)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => applyMonthPresets(editingMonthIndex, 'formatif_tp')}
+                      className="px-2.5 py-1 bg-white hover:bg-indigo-50 text-indigo-700 font-bold border border-indigo-200 rounded-lg shadow-2xs transition-colors cursor-pointer"
+                    >
+                      TP (TP 1-4)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => applyMonthPresets(editingMonthIndex, 'formatif_variasi')}
+                      className="px-2.5 py-1 bg-white hover:bg-indigo-50 text-indigo-700 font-bold border border-indigo-200 rounded-lg shadow-2xs transition-colors cursor-pointer"
+                    >
+                      Tugas/Proyek/Tes
+                    </button>
+                  </div>
+                </div>
 
-                      <div>
-                        <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">
-                          Tanggal Penilaian:
-                        </label>
-                        <input
-                          type="date"
-                          value={h.tanggal || ''}
-                          onChange={(e) =>
-                            handleUpdateHeader(key, 'tanggal', e.target.value)
-                          }
-                          className="w-full text-xs font-mono px-2.5 py-1.5 border border-slate-300 rounded-lg bg-white text-slate-800 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                        />
-                      </div>
+                {/* 4 Columns for the selected month */}
+                <div className="space-y-3 pt-1">
+                  <h4 className="text-xs font-extrabold text-slate-800 uppercase tracking-wider">
+                    4 Kolom Asesmen Formatif Bulan {months[editingMonthIndex]}
+                  </h4>
 
-                      <div>
-                        <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">
-                          Keterangan / Materi Uji:
-                        </label>
-                        <input
-                          type="text"
-                          value={h.keterangan || ''}
-                          onChange={(e) =>
-                            handleUpdateHeader(key, 'keterangan', e.target.value)
-                          }
-                          placeholder="Contoh: Tugas 1, UH Algoritma, Praktik..."
-                          className="w-full text-xs font-medium px-2.5 py-1.5 border border-slate-300 rounded-lg bg-white text-slate-800 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                        />
-                      </div>
-                    </div>
-                  );
-                })}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {[0, 1, 2, 3].map((cIdx) => {
+                      const key = `m${editingMonthIndex}_c${cIdx}`;
+                      const h =
+                        columnHeaders.find((item) => item.key === key) || {
+                          key,
+                          monthIndex: editingMonthIndex,
+                          monthName: months[editingMonthIndex],
+                          colIndex: cIdx,
+                          colLabel: `Formatif ${cIdx + 1}`,
+                          tanggal: '',
+                          keterangan: '',
+                        };
+
+                      return (
+                        <div
+                          key={cIdx}
+                          className="p-3.5 rounded-xl border border-slate-200 bg-slate-50/50 space-y-2.5"
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-black text-indigo-900 bg-indigo-100/80 px-2 py-0.5 rounded-md">
+                              Formatif {cIdx + 1}
+                            </span>
+                            <input
+                              type="text"
+                              value={h.colLabel}
+                              onChange={(e) =>
+                                handleUpdateHeader(key, 'colLabel', e.target.value)
+                              }
+                              placeholder="Label kolom..."
+                              className="text-[11px] font-bold text-slate-700 bg-white border border-slate-300 rounded px-2 py-0.5 w-28 text-right focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                              title="Ubah label kolom (cth: Formatif 1 / TP 1)"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">
+                              Tanggal Penilaian:
+                            </label>
+                            <input
+                              type="date"
+                              value={h.tanggal || ''}
+                              onChange={(e) =>
+                                handleUpdateHeader(key, 'tanggal', e.target.value)
+                              }
+                              className="w-full text-xs font-mono px-2.5 py-1.5 border border-slate-300 rounded-lg bg-white text-slate-800 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">
+                              Materi / Tujuan Pembelajaran:
+                            </label>
+                            <input
+                              type="text"
+                              value={h.keterangan || ''}
+                              onChange={(e) =>
+                                handleUpdateHeader(key, 'keterangan', e.target.value)
+                              }
+                              placeholder="Contoh: TP 1 - Struktur Teks Eksplanasi..."
+                              className="w-full text-xs font-medium px-2.5 py-1.5 border border-slate-300 rounded-lg bg-white text-slate-800 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                            />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
               </div>
-            </div>
+            ) : (
+              /* TAB 2: ATUR ASESMEN SUMATIF (STS & SAS) */
+              <div className="space-y-4">
+                <div className="p-3 bg-amber-50/70 border border-amber-200 rounded-xl text-xs text-amber-900">
+                  <strong>Catatan Kurikulum Merdeka:</strong> Asesmen Sumatif Tengah Semester (STS) dan Asesmen Sumatif Akhir Semester (SAS) masing-masing memiliki bobot 25%, melengkapi 50% dari Rata-rata Asesmen Formatif bulanan.
+                </div>
+
+                {/* Setting STS */}
+                <div className="p-4 rounded-xl border border-amber-200 bg-amber-50/30 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-black text-amber-950 flex items-center gap-1.5">
+                      <BookOpen className="w-4 h-4 text-amber-700" />
+                      <span>Asesmen Sumatif Tengah Semester (STS)</span>
+                    </span>
+                    <input
+                      type="text"
+                      value={stsHeader.colLabel}
+                      onChange={(e) =>
+                        handleUpdateSumatifHeader('sts', 'colLabel', e.target.value)
+                      }
+                      className="text-xs font-bold text-slate-800 bg-white border border-slate-300 rounded px-2.5 py-1 w-44 text-right focus:outline-none focus:ring-1 focus:ring-amber-500"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">
+                        Tanggal Pelaksanaan STS:
+                      </label>
+                      <input
+                        type="date"
+                        value={stsHeader.tanggal || ''}
+                        onChange={(e) =>
+                          handleUpdateSumatifHeader('sts', 'tanggal', e.target.value)
+                        }
+                        className="w-full text-xs font-mono px-2.5 py-1.5 border border-slate-300 rounded-lg bg-white text-slate-800 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">
+                        Lingkup Materi / Kisi-kisi STS:
+                      </label>
+                      <input
+                        type="text"
+                        value={stsHeader.keterangan || ''}
+                        onChange={(e) =>
+                          handleUpdateSumatifHeader('sts', 'keterangan', e.target.value)
+                        }
+                        placeholder="Contoh: Bab 1 s.d. Bab 3..."
+                        className="w-full text-xs font-medium px-2.5 py-1.5 border border-slate-300 rounded-lg bg-white text-slate-800 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Setting SAS */}
+                <div className="p-4 rounded-xl border border-emerald-200 bg-emerald-50/30 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-black text-emerald-950 flex items-center gap-1.5">
+                      <GraduationCap className="w-4 h-4 text-emerald-700" />
+                      <span>Asesmen Sumatif Akhir Semester (SAS)</span>
+                    </span>
+                    <input
+                      type="text"
+                      value={sasHeader.colLabel}
+                      onChange={(e) =>
+                        handleUpdateSumatifHeader('sas', 'colLabel', e.target.value)
+                      }
+                      className="text-xs font-bold text-slate-800 bg-white border border-slate-300 rounded px-2.5 py-1 w-44 text-right focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">
+                        Tanggal Pelaksanaan SAS:
+                      </label>
+                      <input
+                        type="date"
+                        value={sasHeader.tanggal || ''}
+                        onChange={(e) =>
+                          handleUpdateSumatifHeader('sas', 'tanggal', e.target.value)
+                        }
+                        className="w-full text-xs font-mono px-2.5 py-1.5 border border-slate-300 rounded-lg bg-white text-slate-800 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">
+                        Lingkup Materi / Kisi-kisi SAS:
+                      </label>
+                      <input
+                        type="text"
+                        value={sasHeader.keterangan || ''}
+                        onChange={(e) =>
+                          handleUpdateSumatifHeader('sas', 'keterangan', e.target.value)
+                        }
+                        placeholder="Contoh: Keseluruhan Materi Semester 1..."
+                        className="w-full text-xs font-medium px-2.5 py-1.5 border border-slate-300 rounded-lg bg-white text-slate-800 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Modal Footer */}
             <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">

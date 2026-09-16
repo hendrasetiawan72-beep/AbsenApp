@@ -136,4 +136,101 @@ export interface TeacherWorkspaceData {
   updatedAt: string;
 }
 
-export type ActiveTab = 'absensi' | 'nilai' | 'statistik' | 'agenda' | 'impor' | 'laporan-ortu' | 'workspace' | 'peta';
+export type SMKJurusan = 
+  | 'TKR' 
+  | 'TSM' 
+  | 'Akuntansi' 
+  | 'Perbankan Syari\'ah' 
+  | 'TJAT' 
+  | 'TKJ' 
+  | 'Semua Jurusan';
+
+export type AlternatifGenerateModul =
+  | 'pjbl-tefa'
+  | 'pbl-investigasi'
+  | 'skills-bahasa'
+  | 'deep-learning'
+  | 'kemuhammadiyahan'
+  | 'diferensiasi'
+  | 'stem-komputasi'
+  | 'technopreneurship'
+  | 'k3lh-green-skills'
+  | 'pancasila-7kebiasaan';
+
+export interface AlternatifSkenarioKurikulum {
+  id: AlternatifGenerateModul;
+  nomor: number;
+  judul: string;
+  subjudul: string;
+  deskripsi: string;
+  fokusPedagogi: string;
+  badge: string;
+  color: string;
+}
+
+export interface ModulAjarPromptData {
+  id?: string;
+  // 1. Identitas Materi Mata Pelajaran
+  kurikulum: string; // 'Kurikulum Merdeka Belajar'
+  faseKelas: string; // 'Fase E (Kelas X)' | 'Fase F (Kelas XI)' | 'Fase F (Kelas XII)'
+  topikMateri: string;
+  pendekatan: string; // 'Deep Learning (meaningful – mindful – joyful, interkoneksi)'
+  metodePembelajaran: string; // 'Project Based Learning (PjBL)' | 'Problem Based Learning (PBL)'
+  durasiProyek: string; // e.g. '2 pertemuan (8 JP x 45 menit)'
+  namaGuru: string;
+  namaKelasJurusan: string;
+  selectedJurusan: SMKJurusan[];
+  mataPelajaran: string;
+  alternatifTerpilih?: AlternatifGenerateModul;
+
+  // 2. Capaian Pembelajaran Fase dan ATP
+  capaianPembelajaran: string;
+  alurTujuanPembelajaran: string;
+
+  // 3. Tujuan Pembelajaran (ATP yang dijabarkan)
+  tujuanPembelajaran: string[];
+
+  // 4. Sintaks Metode Pembelajaran (PjBL / PBL aktivitas konkret)
+  sintaksPembelajaran: {
+    tahap: string;
+    fokusDeepLearning: string; // 'Mindful' | 'Meaningful' | 'Joyful' | 'Interkoneksi'
+    aktivitasKonkret: string;
+  }[];
+
+  // 8. Integrasi Skills + Practice
+  integrasiSkillsPractice: {
+    hardSkills: string;
+    softSkills: string;
+    praktikNyata: string;
+    keselamatanKerjaK3: string;
+  };
+
+  // 10. Refleksi
+  refleksi: {
+    refleksiSiswa: string;
+    refleksiGuru: string;
+  };
+
+  // Penguatan Karakter Kemuhammadiyahan
+  karakterKemuhammadiyahan: string[];
+
+  // Peta Konsep Karakter 7 Kebiasaan Anak Indonesia Hebat
+  tujuhKebiasaanAnakHebat: {
+    kebiasaan: string;
+    implementasi: string;
+  }[];
+
+  // Konten LKPD Tambahan
+  lkpd: {
+    judulProyek: string;
+    petunjukKerja: string[];
+    tugasProyek: string;
+    alatBahan: string[];
+    rubrikPenilaian: string;
+  };
+
+  createdAt?: string;
+}
+
+export type ActiveTab = 'absensi' | 'nilai' | 'statistik' | 'agenda' | 'generator-modul' | 'impor' | 'laporan-ortu' | 'workspace' | 'peta' | 'kisi-kartu-soal';
+

@@ -1,22 +1,56 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getAuth, GoogleAuthProvider } from 'firebase/auth';
-import { getFirestore, doc, getDocFromServer } from 'firebase/firestore';
+import {
+  initializeFirestore,
+  getFirestore,
+  doc,
+  getDocFromServer,
+  persistentLocalCache,
+  persistentMultipleTabManager,
+} from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
 
 export const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
 export const auth = getAuth(app);
-export const db = getFirestore(app, (firebaseConfig as any).firestoreDatabaseId);
+
+// Use initializeFirestore with experimentalForceLongPolling to avoid 10-second WebChannel stream timeouts
+// in reverse proxies, cloud sandbox iframes, and restricted network environments.
+let firestoreDb;
+try {
+  const dbId = (firebaseConfig as any).firestoreDatabaseId;
+  const settings = {
+    experimentalForceLongPolling: true,
+    localCache: persistentLocalCache({
+      tabManager: persistentMultipleTabManager(),
+    }),
+  };
+  firestoreDb = dbId
+    ? initializeFirestore(app, settings, dbId)
+    : initializeFirestore(app, settings);
+} catch (e) {
+  firestoreDb = getFirestore(app, (firebaseConfig as any).firestoreDatabaseId);
+}
+
+export const db = firestoreDb;
 export const googleAuthProvider = new GoogleAuthProvider();
 
-// Test connection per skill
+// Test connection with timeout guard
 export async function testFirestoreConnection(): Promise<boolean> {
   try {
-    await getDocFromServer(doc(db, 'test', 'connection'));
-    return true;
+    const timeoutPromise = new Promise<boolean>((_, reject) =>
+      setTimeout(() => reject(new Error('Connection timeout')), 5000)
+    );
+    const testPromise = (async () => {
+      await getDocFromServer(doc(db, 'test', 'connection'));
+      return true;
+    })();
+
+    return await Promise.race([testPromise, timeoutPromise]);
   } catch (error: any) {
-    if (error instanceof Error && error.message.includes('the client is offline')) {
-      console.warn('Firestore offline status:', error.message);
+    if (error instanceof Error && (error.message.includes('offline') || error.message.includes('timeout'))) {
+      console.warn('Firestore connectivity status:', error.message);
     }
     return false;
   }
 }
+
