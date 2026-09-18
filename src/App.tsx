@@ -29,12 +29,14 @@ import {
   CalculatedGrade,
   TeachingAgenda,
   GradeColumnHeader,
+  SavingTransaction,
 } from './types';
 import { Storage } from './utils/storage';
 import { Navbar } from './components/Navbar';
 import { AttendanceView } from './components/AttendanceView';
 import { TeachingAgendaView } from './components/TeachingAgendaView';
 import { GradesView } from './components/GradesView';
+import { TabunganView } from './components/TabunganView';
 import { StatisticsResumeView } from './components/StatisticsResumeView';
 import { ParentDailyReportView } from './components/ParentDailyReportView';
 import { LoginModal } from './components/LoginModal';
@@ -43,12 +45,68 @@ import { StudentModal } from './components/StudentModal';
 import { SpreadsheetImportModal } from './components/SpreadsheetImportModal';
 import { GoogleLoginScreen } from './components/GoogleLoginScreen';
 import { DeleteClassModal } from './components/DeleteClassModal';
+import { BackupRestoreModal } from './components/BackupRestoreModal';
 import { GoogleWorkspaceView } from './components/GoogleWorkspaceView';
 import { SchoolMapView } from './components/SchoolMapView';
 import { PromptGeneratorModulView } from './components/PromptGeneratorModulView';
 import { KisiKartuSoalView } from './components/kisi-kartu-soal/KisiKartuSoalView';
+import { PublicTabunganView } from './components/PublicTabunganView';
+import { PublicAbsensiView } from './components/PublicAbsensiView';
+import { PublicNilaiView } from './components/PublicNilaiView';
 
 export default function App() {
+  // Public Tabungan View State (for parents visiting public share link)
+  const [publicShareId, setPublicShareId] = useState<string | null>(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      return params.get('tabungan_share') || params.get('shareId') || null;
+    }
+    return null;
+  });
+  // Public Absensi View State (for parents visiting public attendance share link)
+  const [publicAbsenShareId, setPublicAbsenShareId] = useState<string | null>(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      return params.get('absen_share') || params.get('presensi_share') || null;
+    }
+    return null;
+  });
+  // Public Nilai View State (for students & parents visiting public grades preview/recap link)
+  const [publicNilaiShareId, setPublicNilaiShareId] = useState<string | null>(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      return params.get('nilai_share') || params.get('grades_share') || null;
+    }
+    return null;
+  });
+  const [publicNisn, setPublicNisn] = useState<string | null>(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      return params.get('nisn') || null;
+    }
+    return null;
+  });
+  const [publicStudentId, setPublicStudentId] = useState<string | null>(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      return params.get('studentId') || null;
+    }
+    return null;
+  });
+
+  useEffect(() => {
+    const handlePopState = () => {
+      const params = new URLSearchParams(window.location.search);
+      setPublicShareId(params.get('tabungan_share') || params.get('shareId') || null);
+      setPublicAbsenShareId(params.get('absen_share') || params.get('presensi_share') || null);
+      setPublicNilaiShareId(params.get('nilai_share') || params.get('grades_share') || null);
+      setPublicNisn(params.get('nisn') || null);
+      setPublicStudentId(params.get('studentId') || null);
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
   // Load State from persistent storage as fast initial fallback
   const [teacher, setTeacher] = useState<TeacherProfile>(() => Storage.getTeacher());
   const [classes, setClasses] = useState<ClassRoom[]>(() => Storage.getClasses());
@@ -59,11 +117,16 @@ export default function App() {
   );
   const [allGrades, setAllGrades] = useState<StudentGrade[]>(() => Storage.getAllGrades());
   const [allAgendas, setAllAgendas] = useState<TeachingAgenda[]>(() => Storage.getAllAgendas());
+  const [allSavings, setAllSavings] = useState<SavingTransaction[]>(() => Storage.getAllSavings());
 
   // Cloud State & UX Feedback
   const [isCloudLoading, setIsCloudLoading] = useState<boolean>(true);
   const [cloudStatusMsg, setCloudStatusMsg] = useState<string>('Menghubungkan ke Cloud Firestore...');
   const [isCloudSaving, setIsCloudSaving] = useState<boolean>(false);
+  const [isSavingsSavingCloud, setIsSavingsSavingCloud] = useState<boolean>(false);
+  const [lastSavingsCloudSavedAt, setLastSavingsCloudSavedAt] = useState<string | null>(null);
+  const [hasUnsavedSavingsChanges, setHasUnsavedSavingsChanges] = useState<boolean>(false);
+  const [isBackupModalOpen, setIsBackupModalOpen] = useState<boolean>(false);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
 
   const showToast = (message: string, type: 'success' | 'error' | 'info' = 'success') => {
@@ -122,6 +185,9 @@ export default function App() {
             setAllStudents(seeded.students);
             setAllSessions(seeded.sessions);
             setAllGrades(seeded.grades);
+            if ((seeded as any).savings) {
+              setAllSavings((seeded as any).savings);
+            }
             showToast('Akun Google terhubung! Data baru telah disiapkan di Cloud Firestore.', 'success');
           } else {
             setTeacher(userData.teacher);
@@ -132,6 +198,9 @@ export default function App() {
             setAllGrades(userData.grades);
             if (userData.agendas) {
               setAllAgendas(userData.agendas);
+            }
+            if ((userData as any).savings) {
+              setAllSavings((userData as any).savings);
             }
             showToast(
               `Selamat datang, ${userData.teacher.namaGuru || firebaseUser.displayName || 'Guru'}. Data otomatis ditarik dari Cloud Firestore.`,
@@ -174,6 +243,7 @@ export default function App() {
         setAllSessions(userData.sessions);
         setAllGrades(userData.grades);
         if (userData.agendas) setAllAgendas(userData.agendas);
+        if ((userData as any).savings) setAllSavings((userData as any).savings);
         showToast('Data berhasil disinkronisasi & diambil dari Cloud Firestore!', 'success');
       }
     } catch (error: any) {
@@ -212,6 +282,10 @@ export default function App() {
   useEffect(() => {
     Storage.setAllAgendas(allAgendas);
   }, [allAgendas]);
+
+  useEffect(() => {
+    Storage.setAllSavings(allSavings);
+  }, [allSavings]);
 
   // Current Active Class & its filtered data
   const currentClass =
@@ -580,6 +654,34 @@ export default function App() {
 
   // Dedicated Cloud Save Handler for Attendance (triggered on clicking "Save" button)
   const handleSaveAttendanceToCloud = async (sessionId?: string) => {
+    // Helper to auto-sync attendance snapshot to public collection for real-time parent monitoring
+    const syncPublicAbsensi = (targetSessions: AttendanceSession[]) => {
+      if (!currentClass?.id) return;
+      const shareId = FirestoreService.getPublicAbsensiShareId(
+        auth.currentUser?.uid || 'guru',
+        currentClass.id
+      );
+      FirestoreService.publishPublicAbsensi({
+        shareId,
+        classId: currentClass.id,
+        className: currentClass.namaKelas,
+        mataPelajaran: currentClass.mataPelajaran,
+        jurusan: currentClass.jurusan,
+        schoolName: teacher.namaSekolah,
+        waliKelas: teacher.namaGuru,
+        nip: teacher.nip,
+        academicYear: teacher.tahunAjaran,
+        semester: teacher.semester,
+        teacherUid: auth.currentUser?.uid,
+        updatedAt: new Date().toISOString(),
+        students: classStudents,
+        sessions: targetSessions,
+        isPublicEnabled: true,
+        allowClassRecap: true,
+        pinRequired: false,
+      }).catch(() => {});
+    };
+
     // Ensure allSessions are saved to local storage first
     Storage.setAllSessions(allSessions);
 
@@ -592,41 +694,53 @@ export default function App() {
     }
 
     setIsCloudSaving(true);
-    try {
-      if (sessionId) {
-        const targetSession = allSessions.find((s) => s.id === sessionId);
-        if (targetSession) {
-          await FirestoreService.saveAttendanceSession(
-            auth.currentUser.uid,
-            targetSession
-          );
-          showToast(
-            `Data presensi Pertemuan ${targetSession.pertemuanKe} (${currentClass.namaKelas}) berhasil disimpan ke Cloud Firestore!`,
-            'success'
-          );
-        }
-      } else {
-        // Save all sessions for active class
-        const classSessionsToSave = allSessions.filter(
-          (s) => s.classId === activeClassId
-        );
-        await FirestoreService.saveAttendanceSessionsBatch(
-          auth.currentUser.uid,
-          classSessionsToSave
-        );
+    if (sessionId) {
+      const targetSession = allSessions.find((s) => s.id === sessionId);
+      if (targetSession) {
         showToast(
-          `Seluruh rekap presensi (${classSessionsToSave.length} pertemuan) berhasil disimpan ke Cloud Firestore!`,
+          `Data presensi Pertemuan ${targetSession.pertemuanKe} (${currentClass.namaKelas}) tersimpan ke Cloud!`,
           'success'
         );
+        FirestoreService.saveAttendanceSession(
+          auth.currentUser.uid,
+          targetSession,
+          allSessions
+        )
+          .then(() => {
+            setIsCloudSaving(false);
+            // Real-time background sync to public absensi so parents' preview updates instantly
+            syncPublicAbsensi(allSessions.filter((s) => s.classId === activeClassId));
+          })
+          .catch((err: any) => {
+            console.error('Error saving attendance to Firestore:', err);
+            setIsCloudSaving(false);
+            showToast('Tersimpan di perangkat lokal (koneksi cloud tertunda)', 'info');
+          });
       }
-    } catch (err: any) {
-      console.error('Error saving attendance to Firestore:', err);
-      showToast(
-        'Gagal menyimpan presensi ke Cloud: ' + (err.message || 'Periksa koneksi'),
-        'error'
+    } else {
+      // Save all sessions for active class
+      const classSessionsToSave = allSessions.filter(
+        (s) => s.classId === activeClassId
       );
-    } finally {
-      setIsCloudSaving(false);
+      showToast(
+        `Seluruh rekap presensi (${classSessionsToSave.length} pertemuan) tersimpan ke Cloud!`,
+        'success'
+      );
+      FirestoreService.saveAttendanceSessionsBatch(
+        auth.currentUser.uid,
+        classSessionsToSave,
+        allSessions
+      )
+        .then(() => {
+          setIsCloudSaving(false);
+          // Real-time background sync to public absensi
+          syncPublicAbsensi(classSessionsToSave);
+        })
+        .catch((err: any) => {
+          console.error('Error saving attendance batch to Firestore:', err);
+          setIsCloudSaving(false);
+          showToast('Tersimpan di perangkat lokal (koneksi cloud tertunda)', 'info');
+        });
     }
   };
 
@@ -639,34 +753,70 @@ export default function App() {
       topikMateri,
       records: {},
     };
-    setAllSessions((prev) => [...prev, newSession]);
+    const updatedSessions = [...allSessions, newSession];
+    setAllSessions(updatedSessions);
+    Storage.setAllSessions(updatedSessions);
+    showToast(`Pertemuan ke-${pertemuanKe} berhasil ditambahkan!`, 'success');
 
     if (auth.currentUser) {
       setIsCloudSaving(true);
-      try {
-        await FirestoreService.saveAttendanceSession(auth.currentUser.uid, newSession);
-        showToast(`Pertemuan ke-${pertemuanKe} berhasil disimpan ke Cloud Firestore`, 'success');
-      } catch (err: any) {
-        showToast('Gagal menyimpan sesi ke Cloud: ' + err.message, 'error');
-      } finally {
-        setIsCloudSaving(false);
+      FirestoreService.saveAttendanceSession(auth.currentUser.uid, newSession, updatedSessions)
+        .then(() => setIsCloudSaving(false))
+        .catch((err: any) => {
+          console.error('Error saving new session to Firestore:', err);
+          setIsCloudSaving(false);
+        });
+    }
+  };
+
+  const handleUpdateSession = async (
+    sessionId: string,
+    updates: { tanggal?: string; pertemuanKe?: number; topikMateri?: string }
+  ) => {
+    let updatedTarget: AttendanceSession | undefined;
+    const updatedSessions = allSessions.map((s) => {
+      if (s.id === sessionId) {
+        updatedTarget = {
+          ...s,
+          ...updates,
+        };
+        return updatedTarget;
       }
+      return s;
+    });
+
+    setAllSessions(updatedSessions);
+    Storage.setAllSessions(updatedSessions);
+    showToast(
+      `Pertemuan ke-${updates.pertemuanKe || updatedTarget?.pertemuanKe || ''} berhasil diperbarui!`,
+      'success'
+    );
+
+    if (auth.currentUser && updatedTarget) {
+      setIsCloudSaving(true);
+      FirestoreService.saveAttendanceSession(auth.currentUser.uid, updatedTarget, updatedSessions)
+        .then(() => setIsCloudSaving(false))
+        .catch((err: any) => {
+          console.error('Error updating session in Firestore:', err);
+          setIsCloudSaving(false);
+        });
     }
   };
 
   const handleDeleteSession = async (sessionId: string) => {
-    setAllSessions((prev) => prev.filter((s) => s.id !== sessionId));
+    const updatedSessions = allSessions.filter((s) => s.id !== sessionId);
+    setAllSessions(updatedSessions);
+    Storage.setAllSessions(updatedSessions);
+    showToast('Sesi presensi berhasil dihapus', 'info');
 
     if (auth.currentUser) {
       setIsCloudSaving(true);
-      try {
-        await FirestoreService.deleteAttendanceSession(auth.currentUser.uid, sessionId);
-        showToast('Sesi presensi berhasil dihapus dari Cloud Firestore', 'success');
-      } catch (err: any) {
-        showToast('Gagal menghapus sesi dari Cloud: ' + err.message, 'error');
-      } finally {
-        setIsCloudSaving(false);
-      }
+      FirestoreService.deleteAttendanceSession(auth.currentUser.uid, sessionId, updatedSessions)
+        .then(() => setIsCloudSaving(false))
+        .catch((err: any) => {
+          console.error('Error deleting session from Firestore:', err);
+          setIsCloudSaving(false);
+        });
     }
   };
 
@@ -925,6 +1075,7 @@ export default function App() {
         setAllSessions(Storage.getAllSessions());
         setAllGrades(Storage.getAllGrades());
         setAllAgendas(Storage.getAllAgendas());
+        setAllSavings(Storage.getAllSavings());
         setActiveTab('absensi');
       }
     }
@@ -939,21 +1090,25 @@ export default function App() {
     } else {
       updated = [agenda, ...allAgendas];
     }
+    // 1. OPTIMISTIC UPDATE: update local state & storage immediately
     setAllAgendas(updated);
     Storage.setAllAgendas(updated);
 
     const currentUser = auth.currentUser;
     if (currentUser) {
-      try {
-        setIsCloudSaving(true);
-        await FirestoreService.saveAgenda(currentUser.uid, agenda);
-        showToast('Agenda mengajar tersimpan ke Cloud Firestore!', 'success');
-      } catch (err: any) {
-        console.error('Error saving agenda to Cloud:', err);
-        showToast('Tersimpan di penyimpanan lokal.', 'info');
-      } finally {
-        setIsCloudSaving(false);
-      }
+      // 2. Immediate feedback
+      showToast('Agenda mengajar berhasil disimpan ke Cloud!', 'success');
+      setIsCloudSaving(true);
+      // 3. Non-blocking background persistence
+      FirestoreService.saveAgenda(currentUser.uid, agenda, updated)
+        .then(() => {
+          setIsCloudSaving(false);
+        })
+        .catch((err: any) => {
+          console.error('[App] Background save agenda error:', err);
+          setIsCloudSaving(false);
+          showToast('Tersimpan di perangkat lokal (koneksi cloud tertunda)', 'info');
+        });
     } else {
       showToast('Agenda mengajar tersimpan di penyimpanan lokal.', 'success');
     }
@@ -961,24 +1116,209 @@ export default function App() {
 
   const handleDeleteAgenda = async (agendaId: string) => {
     const updated = allAgendas.filter((a) => a.id !== agendaId);
+    // 1. OPTIMISTIC UPDATE: remove from local state immediately
     setAllAgendas(updated);
     Storage.setAllAgendas(updated);
+    showToast('Agenda mengajar berhasil dihapus.', 'info');
 
     const currentUser = auth.currentUser;
     if (currentUser) {
+      setIsCloudSaving(true);
+      FirestoreService.deleteAgenda(currentUser.uid, agendaId, updated)
+        .then(() => setIsCloudSaving(false))
+        .catch((err: any) => {
+          console.error('[App] Background delete agenda error:', err);
+          setIsCloudSaving(false);
+        });
+    }
+  };
+
+  // Handlers for Tabungan Siswa (Fast Real-Time Cloud Sync)
+  const handleAddSavingTransaction = (tx: SavingTransaction) => {
+    const updated = [tx, ...allSavings];
+    setAllSavings(updated);
+    Storage.setAllSavings(updated);
+    setHasUnsavedSavingsChanges(true);
+    showToast(`Transaksi ${tx.jenis === 'setor' ? 'setoran' : 'penarikan'} Rp ${tx.nominal.toLocaleString('id-ID')} berhasil dicatat!`, 'success');
+
+    const syncUid = auth.currentUser?.uid || teacher.googleId || teacher.id || 'guru';
+    FirestoreService.saveSavingsBatch(syncUid, [tx], updated)
+      .then(() => {
+        setHasUnsavedSavingsChanges(false);
+        setLastSavingsCloudSavedAt(new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
+      })
+      .catch((err) => {
+        console.warn('[App] Auto-sync savings to cloud warning:', err);
+      });
+  };
+
+  const handleAddBatchSavingTransactions = (txs: SavingTransaction[]) => {
+    const updated = [...txs, ...allSavings];
+    setAllSavings(updated);
+    Storage.setAllSavings(updated);
+    setHasUnsavedSavingsChanges(true);
+    showToast(`${txs.length} transaksi tabungan berhasil dicatat!`, 'success');
+
+    const syncUid = auth.currentUser?.uid || teacher.googleId || teacher.id || 'guru';
+    FirestoreService.saveSavingsBatch(syncUid, txs, updated)
+      .then(() => {
+        setHasUnsavedSavingsChanges(false);
+        setLastSavingsCloudSavedAt(new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
+      })
+      .catch((err) => {
+        console.warn('[App] Auto-sync batch savings warning:', err);
+      });
+  };
+
+  const handleDeleteSavingTransaction = (txId: string) => {
+    const updated = allSavings.filter((t) => t.id !== txId);
+    setAllSavings(updated);
+    Storage.setAllSavings(updated);
+    setHasUnsavedSavingsChanges(true);
+    showToast('Transaksi tabungan telah dihapus.', 'info');
+
+    const syncUid = auth.currentUser?.uid || teacher.googleId || teacher.id || 'guru';
+    FirestoreService.saveSavingsBatch(syncUid, [], updated)
+      .then(() => {
+        setHasUnsavedSavingsChanges(false);
+        setLastSavingsCloudSavedAt(new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
+      })
+      .catch((err) => {
+        console.warn('[App] Delete savings cloud warning:', err);
+      });
+  };
+
+  const handleManualSaveSavingsToCloud = async () => {
+    const syncUid = auth.currentUser?.uid || teacher.googleId || teacher.id || 'guru';
+    setIsSavingsSavingCloud(true);
+    try {
+      await FirestoreService.saveSavingsBatch(syncUid, [], allSavings);
+      setHasUnsavedSavingsChanges(false);
+      const nowStr = new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      setLastSavingsCloudSavedAt(nowStr);
+      showToast('Seluruh data tabungan siswa berhasil disimpan & disinkronkan ke Cloud Firestore!', 'success');
+    } catch (err: any) {
+      showToast('Gagal menyimpan tabungan ke cloud: ' + (err?.message || 'Error koneksi'), 'error');
+    } finally {
+      setIsSavingsSavingCloud(false);
+    }
+  };
+
+  const handleApplyRestoredData = async (restored: {
+    teacher: TeacherProfile;
+    classes: ClassRoom[];
+    activeClassId: string;
+    students: Student[];
+    sessions: AttendanceSession[];
+    grades: StudentGrade[];
+    agendas: TeachingAgenda[];
+    savings: SavingTransaction[];
+  }) => {
+    setTeacher(restored.teacher);
+    setClasses(restored.classes);
+    setActiveClassId(restored.activeClassId);
+    setAllStudents(restored.students);
+    setAllSessions(restored.sessions);
+    setAllGrades(restored.grades);
+    setAllAgendas(restored.agendas);
+    setAllSavings(restored.savings);
+
+    Storage.setTeacher(restored.teacher);
+    Storage.setClasses(restored.classes);
+    Storage.setActiveClassId(restored.activeClassId);
+    Storage.setAllStudents(restored.students);
+    Storage.setAllSessions(restored.sessions);
+    Storage.setAllGrades(restored.grades);
+    Storage.setAllAgendas(restored.agendas);
+    Storage.setAllSavings(restored.savings);
+
+    const currentUser = auth.currentUser;
+    if (currentUser) {
+      setIsCloudSaving(true);
       try {
-        setIsCloudSaving(true);
-        await FirestoreService.deleteAgenda(currentUser.uid, agendaId);
-        showToast('Agenda mengajar berhasil dihapus.', 'info');
+        await FirestoreService.saveFullWorkspace(currentUser.uid, {
+          teacher: restored.teacher,
+          classes: restored.classes,
+          activeClassId: restored.activeClassId,
+          students: restored.students,
+          sessions: restored.sessions,
+          grades: restored.grades,
+          agendas: restored.agendas,
+          savings: restored.savings,
+        });
+        showToast('Database JSON berhasil dipulihkan dan disinkronkan ke Cloud Firestore!', 'success');
       } catch (err: any) {
-        console.error('Error deleting agenda from Cloud:', err);
+        showToast('Data lokal berhasil dipulihkan. Gagal sinkron ke Cloud: ' + (err?.message || 'Koneksi error'), 'error');
       } finally {
         setIsCloudSaving(false);
       }
     } else {
-      showToast('Agenda mengajar dihapus.', 'info');
+      showToast('Database JSON berhasil dipulihkan ke penyimpanan lokal!', 'success');
     }
   };
+
+  // Public Tabungan Screen for Parents (Bypass teacher login & workspace gate)
+  if (publicShareId) {
+    return (
+      <>
+        <ToastContainer toasts={toasts} onDismiss={dismissToast} />
+        <PublicTabunganView
+          shareId={publicShareId}
+          initialNisn={publicNisn || undefined}
+          initialStudentId={publicStudentId || undefined}
+          onExitToApp={() => {
+            const newUrl = window.location.origin + window.location.pathname;
+            window.history.pushState({}, '', newUrl);
+            setPublicShareId(null);
+            setPublicNisn(null);
+            setPublicStudentId(null);
+          }}
+        />
+      </>
+    );
+  }
+
+  // Public Absensi Screen for Parents (Bypass teacher login & workspace gate)
+  if (publicAbsenShareId) {
+    return (
+      <>
+        <ToastContainer toasts={toasts} onDismiss={dismissToast} />
+        <PublicAbsensiView
+          shareId={publicAbsenShareId}
+          initialNisn={publicNisn || undefined}
+          initialStudentId={publicStudentId || undefined}
+          onExitToApp={() => {
+            const newUrl = window.location.origin + window.location.pathname;
+            window.history.pushState({}, '', newUrl);
+            setPublicAbsenShareId(null);
+            setPublicNisn(null);
+            setPublicStudentId(null);
+          }}
+        />
+      </>
+    );
+  }
+
+  // Public Nilai Screen for Students & Parents (Bypass teacher login & workspace gate)
+  if (publicNilaiShareId) {
+    return (
+      <>
+        <ToastContainer toasts={toasts} onDismiss={dismissToast} />
+        <PublicNilaiView
+          shareId={publicNilaiShareId}
+          initialNisn={publicNisn || undefined}
+          initialStudentId={publicStudentId || undefined}
+          onExitToApp={() => {
+            const newUrl = window.location.origin + window.location.pathname;
+            window.history.pushState({}, '', newUrl);
+            setPublicNilaiShareId(null);
+            setPublicNisn(null);
+            setPublicStudentId(null);
+          }}
+        />
+      </>
+    );
+  }
 
   // Cloud Loading Screen Indicator (Requirement 3: UX Indicator Spinner/Skeleton)
   if (isCloudLoading) {
@@ -1023,6 +1363,7 @@ export default function App() {
         onOpenClassModal={handleOpenCreateClass}
         onOpenEditClass={handleOpenEditClass}
         onOpenLoginModal={() => setIsLoginModalOpen(true)}
+        onOpenBackupModal={() => setIsBackupModalOpen(true)}
         onResetData={handleResetData}
         onDeleteClass={handleRequestDeleteClass}
         onLogout={handleLogout}
@@ -1047,6 +1388,7 @@ export default function App() {
             onMarkAllPresent={handleMarkAllPresent}
             onResetSession={handleResetSession}
             onAddSession={handleAddSession}
+            onUpdateSession={handleUpdateSession}
             onDeleteSession={handleDeleteSession}
             onEditStudent={(s) => {
               setEditingStudent(s);
@@ -1062,6 +1404,9 @@ export default function App() {
             onOpenWorkspaceTab={() => setActiveTab('workspace')}
             onOpenParentReportTab={() => setActiveTab('laporan-ortu')}
             onOpenEditClass={() => handleOpenEditClass(currentClass)}
+            currentClass={currentClass}
+            teacher={teacher}
+            onShowToast={showToast}
           />
         )}
 
@@ -1110,6 +1455,31 @@ export default function App() {
               setIsStudentModalOpen(true);
             }}
             onOpenEditClass={() => handleOpenEditClass(currentClass)}
+            currentClass={currentClass}
+            teacher={teacher}
+            currentUid={auth.currentUser?.uid || 'demo'}
+            onShowToast={showToast}
+          />
+        )}
+
+        {/* TAB BARU: TABUNGAN SISWA & KAS KELAS */}
+        {activeTab === 'tabungan' && (
+          <TabunganView
+            currentClass={currentClass}
+            allClasses={classes}
+            onSelectClass={handleSelectClass}
+            students={classStudents}
+            teacher={teacher}
+            savings={allSavings}
+            onAddTransaction={handleAddSavingTransaction}
+            onAddBatchTransactions={handleAddBatchSavingTransactions}
+            onDeleteTransaction={handleDeleteSavingTransaction}
+            onSaveToCloud={handleManualSaveSavingsToCloud}
+            isSavingCloud={isSavingsSavingCloud}
+            hasUnsavedCloudChanges={hasUnsavedSavingsChanges}
+            lastCloudSavedAt={lastSavingsCloudSavedAt}
+            onShowToast={showToast}
+            onOpenBackupModal={() => setIsBackupModalOpen(true)}
           />
         )}
 
@@ -1348,6 +1718,22 @@ export default function App() {
           setIsDeleteClassModalOpen(false);
           setClassToDeleteId(null);
         }}
+      />
+
+      {/* Full Database JSON Backup & Restore Modal (Kendali Penuh Guru) */}
+      <BackupRestoreModal
+        isOpen={isBackupModalOpen}
+        onClose={() => setIsBackupModalOpen(false)}
+        teacher={teacher}
+        classes={classes}
+        activeClassId={activeClassId}
+        allStudents={allStudents}
+        allSessions={allSessions}
+        allGrades={allGrades}
+        allAgendas={allAgendas}
+        allSavings={allSavings}
+        onApplyRestoredData={handleApplyRestoredData}
+        onShowToast={showToast}
       />
 
       {/* Footer (Hidden on print) */}

@@ -173,9 +173,6 @@ export const MenuSheetView: React.FC<MenuSheetViewProps> = ({ onNavigateTab }) =
         <h3 className="text-base sm:text-lg font-black text-slate-900 tracking-tight uppercase">
           SMK MUHAMMADIYAH BAWANG - BATANG
         </h3>
-        <p className="text-xs text-slate-500 font-semibold mt-0.5">
-          Jl. Raya Bawang - Subah Km. 01 Bawang, Kec. Bawang, Kab. Batang, Jawa Tengah
-        </p>
       </div>
     </div>
   );

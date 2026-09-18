@@ -90,6 +90,44 @@ export const KisiKartuSoalView: React.FC = () => {
     }, 4500);
   };
 
+  // Handle Identity Updates with automatic propagation to subsequent tabs
+  const handleUpdateIdentitas = (updated: SchoolIdentity) => {
+    setIdentitas(updated);
+
+    // Auto propagate changes to soalData:
+    // If jenisTes changed, update all soal items' digunakanUntuk
+    // If tanggalPenyusunan changed, update all soal items' tanggal
+    setSoalData((prevSoals) =>
+      prevSoals.map((soal) => ({
+        ...soal,
+        digunakanUntuk: updated.jenisTes || soal.digunakanUntuk,
+        tanggal: updated.tanggalPenyusunan || soal.tanggal,
+      }))
+    );
+
+    // If bentukTes changed, update masterData's bentukTes
+    if (updated.bentukTes) {
+      setMasterData((prevMaster) =>
+        prevMaster.map((m) => ({
+          ...m,
+          bentukTes: updated.bentukTes || m.bentukTes,
+        }))
+      );
+    }
+  };
+
+  const handleSaveIdentitas = () => {
+    try {
+      localStorage.setItem(`${STORAGE_KEY}_identitas`, JSON.stringify(identitas));
+      localStorage.setItem(`${STORAGE_KEY}_master`, JSON.stringify(masterData));
+      localStorage.setItem(`${STORAGE_KEY}_soal`, JSON.stringify(soalData));
+      showToast('Data Identitas Guru & Sekolah berhasil disimpan ke penyimpanan browser!', 'success');
+    } catch (e) {
+      console.error(e);
+      showToast('Gagal menyimpan identitas ke penyimpanan lokal', 'error');
+    }
+  };
+
   // Handle Excel File Upload
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -202,7 +240,7 @@ export const KisiKartuSoalView: React.FC = () => {
               </span>
             </div>
             <p className="text-xs text-slate-500 font-medium">
-              Sesuai contoh format spreadsheet SMK Muhammadiyah Bawang
+              {identitas.namaSekolah} • {identitas.alamatSekolah || 'Jalan Sukorejo - Bawang km 01'}
             </p>
           </div>
         </div>
@@ -263,7 +301,8 @@ export const KisiKartuSoalView: React.FC = () => {
         {activeTab === 'identitas' && (
           <IdentitasSheetView
             identitas={identitas}
-            onChangeIdentitas={setIdentitas}
+            onChangeIdentitas={handleUpdateIdentitas}
+            onSaveIdentitas={handleSaveIdentitas}
             onNavigateTab={(tab) => setActiveTab(tab)}
             onShowToast={showToast}
           />
@@ -271,6 +310,7 @@ export const KisiKartuSoalView: React.FC = () => {
 
         {activeTab === 'master' && (
           <DataMasterSheetView
+            identitas={identitas}
             masterData={masterData}
             onChangeMasterData={setMasterData}
             onNavigateTab={(tab) => setActiveTab(tab)}
@@ -280,6 +320,7 @@ export const KisiKartuSoalView: React.FC = () => {
 
         {activeTab === 'soal' && (
           <DataSoalSheetView
+            identitas={identitas}
             soalData={soalData}
             onChangeSoalData={setSoalData}
             onNavigateTab={(tab) => setActiveTab(tab)}
@@ -299,6 +340,10 @@ export const KisiKartuSoalView: React.FC = () => {
             currentSoalNo={activeSoalNo}
             onSelectSoalNo={setActiveSoalNo}
             onNavigateTab={(tab) => setActiveTab(tab)}
+            onUpdateIdentitas={(updatedIdentitas) => {
+              handleUpdateIdentitas(updatedIdentitas);
+              showToast('Identitas & jenis tes diperbarui', 'info');
+            }}
             onUpdateSoal={(updated) => {
               setSoalData((prev) =>
                 prev.map((s) => (s.noSoal === updated.noSoal ? updated : s))
@@ -318,6 +363,7 @@ export const KisiKartuSoalView: React.FC = () => {
 
         {activeTab === 'lampiran' && (
           <LampiranKisiKisiSheetView
+            identitas={identitas}
             soalData={soalData}
             onNavigateTab={(tab) => setActiveTab(tab)}
           />

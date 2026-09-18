@@ -27,12 +27,12 @@ export const LoginModal: React.FC<LoginModalProps> = ({
   onSave,
   onClose,
 }) => {
-  const [namaGuru, setNamaGuru] = useState(teacher.namaGuru);
-  const [nip, setNip] = useState(teacher.nip);
-  const [namaSekolah, setNamaSekolah] = useState(teacher.namaSekolah);
-  const [mapel, setMapel] = useState(teacher.mataPelajaranUtama);
-  const [tahunAjaran, setTahunAjaran] = useState(teacher.tahunAjaran);
-  const [semester, setSemester] = useState<'Ganjil' | 'Genap'>(teacher.semester);
+  const [namaGuru, setNamaGuru] = useState(teacher.namaGuru || '');
+  const [nip, setNip] = useState(teacher.nip || '');
+  const [namaSekolah, setNamaSekolah] = useState(teacher.namaSekolah || '');
+  const [mapel, setMapel] = useState(teacher.mataPelajaranUtama || '');
+  const [tahunAjaran, setTahunAjaran] = useState(teacher.tahunAjaran || '');
+  const [semester, setSemester] = useState<'Ganjil' | 'Genap'>(teacher.semester || 'Ganjil');
 
   // Initial class input in login modal
   const [newClassName, setNewClassName] = useState('');
@@ -49,6 +49,17 @@ export const LoginModal: React.FC<LoginModalProps> = ({
   useEffect(() => {
     setLocalClasses(classes);
   }, [classes, isOpen]);
+
+  useEffect(() => {
+    if (isOpen) {
+      setNamaGuru(teacher.namaGuru || '');
+      setNip(teacher.nip || '');
+      setNamaSekolah(teacher.namaSekolah || '');
+      setMapel(teacher.mataPelajaranUtama || '');
+      setTahunAjaran(teacher.tahunAjaran || '');
+      setSemester(teacher.semester || 'Ganjil');
+    }
+  }, [teacher, isOpen]);
 
   if (!isOpen) return null;
 

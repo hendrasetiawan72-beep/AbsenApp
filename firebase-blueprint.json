@@ -136,6 +136,10 @@
     "/attendance_sessions/{sessionId}": {
       "schema": "AttendanceSession",
       "description": "Koleksi sesi presensi pertemuan"
+    },
+    "/public_tabungan/{shareId}": {
+      "schema": "TeacherWorkspace",
+      "description": "Snapshot data publik tabungan kelas yang dapat dipantau orang tua secara real-time"
     }
   }
 }

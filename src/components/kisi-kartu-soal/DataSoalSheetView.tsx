@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { SoalItem, SheetTab } from '../../types/kisiKartuSoal';
+import { SoalItem, SheetTab, SchoolIdentity } from '../../types/kisiKartuSoal';
 import { ArrowLeft, Plus, Trash2, Search, RotateCcw, Eye } from 'lucide-react';
 import { DEFAULT_SOAL_DATA } from '../../data/kisiKartuSoalDefaultData';
 
@@ -9,6 +9,7 @@ interface DataSoalSheetViewProps {
   onNavigateTab: (tab: SheetTab) => void;
   onSelectSoalForCard: (soalNo: number) => void;
   onShowToast: (msg: string, type: 'success' | 'info' | 'error') => void;
+  identitas?: SchoolIdentity;
 }
 
 export const DataSoalSheetView: React.FC<DataSoalSheetViewProps> = ({
@@ -17,6 +18,7 @@ export const DataSoalSheetView: React.FC<DataSoalSheetViewProps> = ({
   onNavigateTab,
   onSelectSoalForCard,
   onShowToast,
+  identitas,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -41,8 +43,8 @@ export const DataSoalSheetView: React.FC<DataSoalSheetViewProps> = ({
       pilihanD: '',
       jumlahSiswa: 144,
       tingkatKesukaran: 'Sedang',
-      digunakanUntuk: 'PSTS',
-      tanggal: '11 Maret 2026',
+      digunakanUntuk: identitas?.jenisTes || 'Penilaian Tengah Semester (PSTS)',
+      tanggal: identitas?.tanggalPenyusunan || '11 Maret 2026',
       keputusanValidasi: 'Diterima',
     };
     onChangeSoalData([...soalData, newSoal]);
@@ -133,6 +135,29 @@ export const DataSoalSheetView: React.FC<DataSoalSheetViewProps> = ({
           </span>
         </div>
 
+        {/* Synchronized Identity Information Bar */}
+        {identitas && (
+          <div className="bg-rose-50/70 border-b border-rose-200 px-4 py-2 flex flex-wrap items-center justify-between gap-2 text-xs">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="font-bold text-rose-950">Mata Pelajaran:</span>
+              <span className="bg-white px-2 py-0.5 rounded font-bold text-slate-900 border border-rose-300">
+                {identitas.mataPelajaran}
+              </span>
+              <span className="font-bold text-rose-950 ml-1">Jenis Tes:</span>
+              <span className="bg-rose-600 text-white px-2.5 py-0.5 rounded font-black shadow-2xs">
+                {identitas.jenisTes || 'Penilaian Tengah Semester'}
+              </span>
+              <span className="font-bold text-rose-950 ml-1">Target:</span>
+              <span className="bg-white px-2 py-0.5 rounded font-bold text-slate-900 border border-rose-300">
+                {soalData.length} / {identitas.jumlahSoal || 50} Soal
+              </span>
+            </div>
+            <div className="text-[11px] text-rose-900 font-semibold">
+              Penyusun: <strong className="text-slate-950">{identitas.penyusun}</strong> | Tanggal: <strong className="text-slate-950">{identitas.tanggalPenyusunan}</strong>
+            </div>
+          </div>
+        )}
+
         {/* Scrollable Spreadsheet Table with exact RED headers */}
         <div className="overflow-x-auto max-h-[650px] overflow-y-auto">
           <table className="w-full text-left text-xs border-collapse">
@@ -164,7 +189,7 @@ export const DataSoalSheetView: React.FC<DataSoalSheetViewProps> = ({
                     {/* Kunci */}
                     <td className="p-1 border border-slate-200 text-center bg-amber-50/50">
                       <select
-                        value={item.kunci}
+                        value={item.kunci || 'A'}
                         onChange={(e) => handleCellChange(originalIndex, 'kunci', e.target.value)}
                         className="w-full p-1 font-black text-center text-amber-900 bg-transparent rounded focus:bg-white focus:outline-none cursor-pointer"
                       >
@@ -180,7 +205,7 @@ export const DataSoalSheetView: React.FC<DataSoalSheetViewProps> = ({
                     <td className="p-1 border border-slate-200">
                       <textarea
                         rows={3}
-                        value={item.rumusanButirSoal}
+                        value={item.rumusanButirSoal || ''}
                         onChange={(e) =>
                           handleCellChange(originalIndex, 'rumusanButirSoal', e.target.value)
                         }
@@ -193,7 +218,7 @@ export const DataSoalSheetView: React.FC<DataSoalSheetViewProps> = ({
                     <td className="p-1 border border-slate-200">
                       <textarea
                         rows={2}
-                        value={item.pilihanA}
+                        value={item.pilihanA || ''}
                         onChange={(e) => handleCellChange(originalIndex, 'pilihanA', e.target.value)}
                         placeholder="Opsi A..."
                         className="w-full p-1.5 text-xs bg-transparent focus:bg-white focus:ring-1 focus:ring-rose-500 rounded border border-transparent hover:border-slate-300 resize-y"
@@ -204,7 +229,7 @@ export const DataSoalSheetView: React.FC<DataSoalSheetViewProps> = ({
                     <td className="p-1 border border-slate-200">
                       <textarea
                         rows={2}
-                        value={item.pilihanB}
+                        value={item.pilihanB || ''}
                         onChange={(e) => handleCellChange(originalIndex, 'pilihanB', e.target.value)}
                         placeholder="Opsi B..."
                         className="w-full p-1.5 text-xs bg-transparent focus:bg-white focus:ring-1 focus:ring-rose-500 rounded border border-transparent hover:border-slate-300 resize-y"
@@ -215,7 +240,7 @@ export const DataSoalSheetView: React.FC<DataSoalSheetViewProps> = ({
                     <td className="p-1 border border-slate-200">
                       <textarea
                         rows={2}
-                        value={item.pilihanC}
+                        value={item.pilihanC || ''}
                         onChange={(e) => handleCellChange(originalIndex, 'pilihanC', e.target.value)}
                         placeholder="Opsi C..."
                         className="w-full p-1.5 text-xs bg-transparent focus:bg-white focus:ring-1 focus:ring-rose-500 rounded border border-transparent hover:border-slate-300 resize-y"
@@ -226,7 +251,7 @@ export const DataSoalSheetView: React.FC<DataSoalSheetViewProps> = ({
                     <td className="p-1 border border-slate-200">
                       <textarea
                         rows={2}
-                        value={item.pilihanD}
+                        value={item.pilihanD || ''}
                         onChange={(e) => handleCellChange(originalIndex, 'pilihanD', e.target.value)}
                         placeholder="Opsi D..."
                         className="w-full p-1.5 text-xs bg-transparent focus:bg-white focus:ring-1 focus:ring-rose-500 rounded border border-transparent hover:border-slate-300 resize-y"

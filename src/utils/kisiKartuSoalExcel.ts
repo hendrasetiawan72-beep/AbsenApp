@@ -18,18 +18,20 @@ export function exportCurrentDataToExcel(
   const identitasRows = [
     ['PARAMETER', 'DATA SEKOLAH & GURU PENYUSUN'],
     ['Nama Sekolah', identitas.namaSekolah],
+    ['Alamat Sekolah', identitas.alamatSekolah || 'Jalan Sukorejo - Bawang km 01'],
     ['Kepala Sekolah', identitas.kepalaSekolah],
     ['NBM Kepala Sekolah', identitas.nbmKepalaSekolah],
     ['Mata Pelajaran', identitas.mataPelajaran],
     ['Kurikulum', identitas.kurikulum],
     ['Kelas / Semester', identitas.kelasSemester],
-    ['Kelas / Komptensi', identitas.kelasKompetensi],
+    ['Kelas / Kompetensi', identitas.kelasKompetensi],
     ['Bentuk Tes', identitas.bentukTes],
+    ['Jenis Tes', identitas.jenisTes || 'Penilaian Tengah Semester (PSTS)'],
     ['Jumlah Soal', identitas.jumlahSoal],
     ['Alokasi Waktu', identitas.alokasiWaktu],
     ['Tahun Ajaran', identitas.tahunAjaran],
     ['Penyusun', identitas.penyusun],
-    ['NIP Penyusun', identitas.nipPenyusun],
+    ['NBM Penyusun', identitas.nbmPenyusun],
     ['Buku Sumber', identitas.bukuSumber],
     ['Tanggal Penyusunan', identitas.tanggalPenyusunan],
   ];
@@ -67,6 +69,7 @@ export function exportCurrentDataToExcel(
     'Pilihan B',
     'Pilihan C',
     'Pilihan D',
+    'Input Manual / Catatan',
   ];
   const soalRows = soalData.map((s) => [
     s.noSoal,
@@ -76,6 +79,7 @@ export function exportCurrentDataToExcel(
     s.pilihanB,
     s.pilihanC,
     s.pilihanD,
+    s.catatanManual || '',
   ]);
   const wsSoal = XLSX.utils.aoa_to_sheet([soalHeaders, ...soalRows]);
   XLSX.utils.book_append_sheet(wb, wsSoal, 'DATA SOAL');
@@ -117,18 +121,21 @@ export async function parseUploadedExcel(file: File): Promise<{
       if (Array.isArray(row) && row.length >= 2) {
         const key = String(row[0] || '').trim().toLowerCase();
         const val = String(row[1] || '').trim();
-        if (key.includes('sekolah')) parsedIdentitas.namaSekolah = val;
+        if (key.includes('alamat')) parsedIdentitas.alamatSekolah = val;
+        else if (key.includes('sekolah')) parsedIdentitas.namaSekolah = val;
         else if (key.includes('kepala')) parsedIdentitas.kepalaSekolah = val;
-        else if (key.includes('nbm')) parsedIdentitas.nbmKepalaSekolah = val;
+        else if (key.includes('nbm') && key.includes('kepala')) parsedIdentitas.nbmKepalaSekolah = val;
         else if (key.includes('pelajaran') || key.includes('mapel')) parsedIdentitas.mataPelajaran = val;
         else if (key.includes('kurikulum')) parsedIdentitas.kurikulum = val;
         else if (key.includes('semester')) parsedIdentitas.kelasSemester = val;
         else if (key.includes('kompetensi')) parsedIdentitas.kelasKompetensi = val;
         else if (key.includes('bentuk')) parsedIdentitas.bentukTes = val;
+        else if (key.includes('jenis')) parsedIdentitas.jenisTes = val;
         else if (key.includes('jumlah')) parsedIdentitas.jumlahSoal = parseInt(val) || 50;
         else if (key.includes('waktu')) parsedIdentitas.alokasiWaktu = val;
         else if (key.includes('tahun')) parsedIdentitas.tahunAjaran = val;
-        else if (key.includes('penyusun') && !key.includes('tanggal')) parsedIdentitas.penyusun = val;
+        else if (key.includes('penyusun') && !key.includes('tanggal') && !key.includes('nbm') && !key.includes('nip')) parsedIdentitas.penyusun = val;
+        else if (key.includes('nbm')) parsedIdentitas.nbmPenyusun = val;
         else if (key.includes('nip')) parsedIdentitas.nipPenyusun = val;
         else if (key.includes('buku') || key.includes('sumber')) parsedIdentitas.bukuSumber = val;
         else if (key.includes('tanggal')) parsedIdentitas.tanggalPenyusunan = val;
@@ -212,6 +219,13 @@ export async function parseUploadedExcel(file: File): Promise<{
           const pilihanC = String(row['Pilihan C'] || row['PilihanC'] || row['C'] || row['c'] || '').trim();
           const pilihanD = String(row['Pilihan D'] || row['PilihanD'] || row['D'] || row['d'] || '').trim();
           const pilihanE = String(row['Pilihan E'] || row['PilihanE'] || row['E'] || row['e'] || '').trim();
+          const catatanManual = String(
+            row['Input Manual / Catatan'] ||
+            row['Catatan'] ||
+            row['catatanManual'] ||
+            row['Input Manual'] ||
+            ''
+          ).trim();
 
           return {
             noSoal,
@@ -222,6 +236,7 @@ export async function parseUploadedExcel(file: File): Promise<{
             pilihanC,
             pilihanD,
             pilihanE: pilihanE || undefined,
+            catatanManual: catatanManual || undefined,
             jumlahSiswa: 144,
             tingkatKesukaran: noSoal % 3 === 0 ? 'HOTS' : noSoal % 2 === 0 ? 'Mudah' : 'Sedang',
             digunakanUntuk: 'PSTS',

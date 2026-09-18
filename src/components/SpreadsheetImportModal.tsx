@@ -356,7 +356,7 @@ export const SpreadsheetImportModal: React.FC<SpreadsheetImportModalProps> = ({
                           <input
                             type="number"
                             min="1"
-                            value={row.no}
+                            value={row.no ?? idx + 1}
                             onChange={(e) => handleUpdateRow(idx, 'no', Number(e.target.value))}
                             className="w-10 text-center text-xs py-0.5 border border-slate-200 rounded focus:ring-1 focus:ring-indigo-500 focus:outline-none"
                           />
@@ -364,7 +364,7 @@ export const SpreadsheetImportModal: React.FC<SpreadsheetImportModalProps> = ({
                         <td className="py-1 px-2">
                           <input
                             type="text"
-                            value={row.nisn}
+                            value={row.nisn || ''}
                             onChange={(e) => handleUpdateRow(idx, 'nisn', e.target.value)}
                             className="w-full font-mono text-[11px] px-2 py-1 border border-slate-200 rounded bg-white focus:ring-1 focus:ring-indigo-500 focus:outline-none"
                             placeholder="NISN..."
@@ -373,7 +373,7 @@ export const SpreadsheetImportModal: React.FC<SpreadsheetImportModalProps> = ({
                         <td className="py-1 px-2">
                           <input
                             type="text"
-                            value={row.nama}
+                            value={row.nama || ''}
                             onChange={(e) => handleUpdateRow(idx, 'nama', e.target.value)}
                             className="w-full font-semibold text-xs px-2 py-1 border border-slate-200 rounded bg-white text-slate-900 focus:ring-1 focus:ring-indigo-500 focus:outline-none"
                             placeholder="Nama Siswa..."
@@ -396,7 +396,7 @@ export const SpreadsheetImportModal: React.FC<SpreadsheetImportModalProps> = ({
                         <td className="py-1 px-2">
                           <input
                             type="text"
-                            value={row.catatanUmum}
+                            value={row.catatanUmum || ''}
                             onChange={(e) => handleUpdateRow(idx, 'catatanUmum', e.target.value)}
                             className="w-full text-xs px-2 py-1 border border-slate-200 rounded bg-white text-slate-700 focus:ring-1 focus:ring-indigo-500 focus:outline-none"
                             placeholder="Catatan khusus..."

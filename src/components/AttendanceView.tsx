@@ -24,10 +24,12 @@ import {
   Eye,
   Check,
   X,
+  Globe,
 } from 'lucide-react';
-import { Student, AttendanceSession, AttendanceStatus, Gender } from '../types';
+import { Student, AttendanceSession, AttendanceStatus, Gender, ClassRoom, TeacherProfile } from '../types';
 import { exportAttendanceToExcel } from '../utils/excel';
 import { WhatsAppShareModal } from './WhatsAppShareModal';
+import { SharePublicAbsensiModal } from './SharePublicAbsensiModal';
 
 const monthNamesIndo = [
   'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
@@ -145,6 +147,7 @@ interface AttendanceViewProps {
   onMarkAllPresent: (sessionId: string) => void;
   onResetSession: (sessionId: string) => void;
   onAddSession: (tanggal: string, pertemuanKe: number, topikMateri: string) => void;
+  onUpdateSession?: (sessionId: string, updates: { tanggal?: string; pertemuanKe?: number; topikMateri?: string }) => void;
   onDeleteSession: (sessionId: string) => void;
   onEditStudent: (student: Student) => void;
   onUpdateStudentField?: (studentId: string, field: keyof Student, value: any) => void;
@@ -154,6 +157,9 @@ interface AttendanceViewProps {
   onOpenWorkspaceTab?: () => void;
   onOpenParentReportTab?: () => void;
   onOpenEditClass?: () => void;
+  currentClass?: ClassRoom;
+  teacher?: TeacherProfile;
+  onShowToast?: (msg: string, type: 'success' | 'error' | 'info') => void;
 }
 
 export const AttendanceView: React.FC<AttendanceViewProps> = ({
@@ -171,6 +177,7 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
   onMarkAllPresent,
   onResetSession,
   onAddSession,
+  onUpdateSession,
   onDeleteSession,
   onEditStudent,
   onUpdateStudentField,
@@ -180,7 +187,33 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
   onOpenWorkspaceTab,
   onOpenParentReportTab,
   onOpenEditClass,
+  currentClass,
+  teacher,
+  onShowToast,
 }) => {
+  // Public Share Modal state
+  const [showPublicShareModal, setShowPublicShareModal] = useState(false);
+
+  // Fallback ClassRoom and TeacherProfile objects for sharing
+  const classObj: ClassRoom = currentClass || {
+    id: activeClassId,
+    namaKelas: activeClassName,
+    mataPelajaran: mataPelajaran,
+    kkm: 75,
+    totalSiswa: students.length,
+  };
+
+  const teacherObj: TeacherProfile = teacher || {
+    id: 'guru-1',
+    namaGuru: teacherName,
+    nip: '',
+    namaSekolah: schoolName,
+    mataPelajaranUtama: mataPelajaran,
+    tahunAjaran: '2025/2026',
+    semester: 'Ganjil',
+    isLoggedIn: true,
+    activeClassId: activeClassId,
+  };
   // Active session selector
   const [selectedSessionId, setSelectedSessionId] = useState<string>(
     sessions[sessions.length - 1]?.id || ''
@@ -470,6 +503,39 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
     setNewSessionTopic('');
   };
 
+  // State & Handlers for Editing Existing Session (Topik/Materi, Tanggal, Pertemuan Ke)
+  const [editingSession, setEditingSession] = useState<AttendanceSession | null>(null);
+  const [editDate, setEditDate] = useState('');
+  const [editPertemuanKe, setEditPertemuanKe] = useState<number>(1);
+  const [editTopic, setEditTopic] = useState('');
+
+  const handleStartEditSession = (session: AttendanceSession) => {
+    setEditingSession(session);
+    setEditDate(session.tanggal);
+    setEditPertemuanKe(session.pertemuanKe);
+    setEditTopic(session.topikMateri || '');
+  };
+
+  const handleSaveEditSession = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingSession) return;
+    if (!editDate) {
+      alert('Mohon tentukan tanggal pertemuan');
+      return;
+    }
+    if (onUpdateSession) {
+      onUpdateSession(editingSession.id, {
+        tanggal: editDate,
+        pertemuanKe: Number(editPertemuanKe) || 1,
+        topikMateri: editTopic.trim() || `Pertemuan ke-${editPertemuanKe}`,
+      });
+    }
+    if (onShowToast) {
+      onShowToast('Data pertemuan berhasil diperbarui', 'success');
+    }
+    setEditingSession(null);
+  };
+
   const handleExportExcel = () => {
     exportAttendanceToExcel(activeClassName, mataPelajaran, teacherName, students, sessions);
   };
@@ -539,6 +605,15 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
                 </span>
                 <button
                   type="button"
+                  onClick={() => handleStartEditSession(activeSession)}
+                  className="inline-flex items-center gap-1 text-[11px] font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200/90 px-2 py-0.5 rounded-md transition-colors cursor-pointer shadow-2xs ml-1"
+                  title="Edit manual topik, materi pembelajaran, dan tanggal pertemuan ini"
+                >
+                  <Edit3 className="w-3 h-3 text-indigo-600" />
+                  <span>Edit Pertemuan</span>
+                </button>
+                <button
+                  type="button"
                   onClick={() => {
                     if (confirm(`Hapus sesi pertemuan ke-${activeSession.pertemuanKe} ini?`)) {
                       onDeleteSession(activeSession.id);
@@ -589,23 +664,35 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
 
             {/* Session Dropdown (Single mode) */}
             {viewMode === 'single' && sessions.length > 0 && (
-              <div className="relative inline-block">
-                <select
-                  aria-label="Pilih Pertemuan"
-                  value={currentSessionId}
-                  onChange={(e) => {
-                    setSelectedSessionId(e.target.value);
-                    setHasUnsavedChanges(false);
-                  }}
-                  className="text-xs font-bold bg-slate-100 hover:bg-slate-200/80 border border-slate-300/80 rounded-xl px-3 py-2 pr-7 focus:ring-2 focus:ring-indigo-500 focus:outline-none cursor-pointer transition-colors max-w-[170px] truncate"
-                >
-                  {sessions.map((ses) => (
-                    <option key={ses.id} value={ses.id}>
-                      P{ses.pertemuanKe} • {ses.tanggal}
-                    </option>
-                  ))}
-                </select>
-                <ChevronDown className="w-3.5 h-3.5 text-slate-500 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <div className="flex items-center gap-1">
+                <div className="relative inline-block">
+                  <select
+                    aria-label="Pilih Pertemuan"
+                    value={currentSessionId}
+                    onChange={(e) => {
+                      setSelectedSessionId(e.target.value);
+                      setHasUnsavedChanges(false);
+                    }}
+                    className="text-xs font-bold bg-slate-100 hover:bg-slate-200/80 border border-slate-300/80 rounded-xl px-3 py-2 pr-7 focus:ring-2 focus:ring-indigo-500 focus:outline-none cursor-pointer transition-colors max-w-[170px] truncate"
+                  >
+                    {sessions.map((ses) => (
+                      <option key={ses.id} value={ses.id}>
+                        P{ses.pertemuanKe} • {ses.tanggal}
+                      </option>
+                    ))}
+                  </select>
+                  <ChevronDown className="w-3.5 h-3.5 text-slate-500 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                </div>
+                {activeSession && (
+                  <button
+                    type="button"
+                    onClick={() => handleStartEditSession(activeSession)}
+                    className="p-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-xl transition-colors cursor-pointer shadow-2xs"
+                    title={`Edit Pertemuan ke-${activeSession.pertemuanKe} (Topik, Materi, Tanggal)`}
+                  >
+                    <Edit3 className="w-3.5 h-3.5" />
+                  </button>
+                )}
               </div>
             )}
 
@@ -648,6 +735,19 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
                 )}
               </button>
             )}
+
+            {/* Tombol Link Preview Orang Tua Real-Time (Absen Harian & Rekap) */}
+            <button
+              type="button"
+              id="btn-public-absen-share"
+              onClick={() => setShowPublicShareModal(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-2 bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-700 hover:to-emerald-700 text-white text-xs font-bold rounded-xl shadow-xs transition-all cursor-pointer ring-1 ring-teal-400/50 hover:shadow-md"
+              title="Buka Link Preview Orang Tua Real-Time (Absen Harian & Rekapitulasi)"
+            >
+              <Globe className="w-3.5 h-3.5 text-teal-100" />
+              <span>Link Preview Ortu</span>
+              <span className="w-2 h-2 rounded-full bg-emerald-300 animate-pulse" />
+            </button>
 
             {activeSession && (
               <button
@@ -995,7 +1095,7 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
                             {isQuickEditMode ? (
                               <input
                                 type="text"
-                                value={student.nama}
+                                value={student.nama || ''}
                                 onChange={(e) =>
                                   onUpdateStudentField?.(student.id, 'nama', e.target.value)
                                 }
@@ -1733,14 +1833,24 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
                           return (
                             <th
                               key={ses.id}
-                              className={`py-2 px-1.5 w-14 text-center border-r ${
+                              className={`py-1.5 px-1 w-14 text-center border-r ${
                                 isLast ? theme.borderSep : 'border-slate-200'
                               } ${theme.subHeaderBg}`}
-                              title={`${group.label} • Pertemuan ke-${ses.pertemuanKe}\nTanggal: ${ses.tanggal}\nTopik: ${ses.topikMateri}`}
+                              title={`${group.label} • Pertemuan ke-${ses.pertemuanKe}\nTanggal: ${ses.tanggal}\nTopik: ${ses.topikMateri}\n(Klik tombol pensil untuk edit materi & tanggal)`}
                             >
-                              <span className={`block font-black text-[11px] ${theme.titleText}`}>
-                                P{ses.pertemuanKe}
-                              </span>
+                              <div className="flex items-center justify-center gap-0.5">
+                                <span className={`font-black text-[11px] ${theme.titleText}`}>
+                                  P{ses.pertemuanKe}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => handleStartEditSession(ses)}
+                                  className="text-slate-400 hover:text-indigo-600 p-0.5 rounded cursor-pointer transition-colors"
+                                  title={`Edit Pertemuan ke-${ses.pertemuanKe} (Topik & Tanggal)`}
+                                >
+                                  <Edit3 className="w-2.5 h-2.5" />
+                                </button>
+                              </div>
                               <span className="text-[9px] text-slate-500 font-mono block truncate">
                                 {formatSessionDate(ses.tanggal)}
                               </span>
@@ -2178,6 +2288,109 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
         students={students}
         onClose={() => setShowWhatsAppModal(false)}
       />
+
+      {/* Public Attendance Share Modal for Parents */}
+      <SharePublicAbsensiModal
+        isOpen={showPublicShareModal}
+        onClose={() => setShowPublicShareModal(false)}
+        currentClass={classObj}
+        teacher={teacherObj}
+        students={students}
+        sessions={sessions}
+        onShowToast={onShowToast}
+      />
+
+      {/* Modal Edit Pertemuan (Tanggal, Topik / Materi Pembelajaran, Nomor Pertemuan) */}
+      {editingSession && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 animate-in fade-in zoom-in duration-150">
+            <div className="flex items-center justify-between pb-4 border-b border-slate-100">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-indigo-50 border border-indigo-200 flex items-center justify-center text-indigo-700">
+                  <Edit3 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-slate-900 leading-tight">
+                    Edit Sesi Pertemuan
+                  </h3>
+                  <p className="text-xs text-slate-500 font-medium mt-0.5">
+                    Ubah tanggal, nomor pertemuan, atau materi pembelajaran
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditingSession(null)}
+                className="p-1 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveEditSession} className="space-y-4 mt-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Pertemuan Ke-
+                  </label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={100}
+                    value={editPertemuanKe}
+                    onChange={(e) => setEditPertemuanKe(parseInt(e.target.value) || 1)}
+                    required
+                    className="w-full px-3 py-2 text-xs font-bold bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Tanggal Pertemuan
+                  </label>
+                  <input
+                    type="date"
+                    value={editDate}
+                    onChange={(e) => setEditDate(e.target.value)}
+                    required
+                    className="w-full px-3 py-2 text-xs font-bold bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  Topik / Materi Pembelajaran
+                </label>
+                <textarea
+                  rows={3}
+                  value={editTopic}
+                  onChange={(e) => setEditTopic(e.target.value)}
+                  placeholder="Contoh: Teks Anekdot, Struktur dan Ciri Kebahasaan..."
+                  className="w-full px-3 py-2 text-xs font-medium text-slate-900 bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none"
+                />
+              </div>
+
+              <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setEditingSession(null)}
+                  className="px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  className="inline-flex items-center gap-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white text-xs font-bold rounded-xl shadow-xs transition-all cursor-pointer"
+                >
+                  <Save className="w-3.5 h-3.5" />
+                  <span>Simpan Perubahan</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -1,7 +1,7 @@
 import 'dotenv/config';
 import express from 'express';
 import path from 'path';
-import { createServer as createViteServer } from 'vite';
+import fs from 'fs';
 import { getDb } from './src/db/index.ts';
 import { cloudClasses, cloudActivityLogs } from './src/db/schema.ts';
 import { eq } from 'drizzle-orm';
@@ -353,14 +353,21 @@ Hasilkan sebuah objek JSON valid dengan struktur yang persis seperti berikut (ta
   });
 
   // Vite middleware setup
-  if (process.env.NODE_ENV !== 'production') {
+  const distPath = path.join(process.cwd(), 'dist');
+  const hasDistIndex = fs.existsSync(path.join(distPath, 'index.html'));
+  const isProduction =
+    process.env.NODE_ENV === 'production' ||
+    Boolean(process.env.K_SERVICE) ||
+    hasDistIndex;
+
+  if (!isProduction) {
+    const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: 'spa',
     });
     app.use(vite.middlewares);
   } else {
-    const distPath = path.join(process.cwd(), 'dist');
     app.use(express.static(distPath));
     app.get('*', (req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));
@@ -368,7 +375,7 @@ Hasilkan sebuah objek JSON valid dengan struktur yang persis seperti berikut (ta
   }
 
   app.listen(PORT, '0.0.0.0', () => {
-    console.log(`Server running on http://0.0.0.0:${PORT}`);
+    console.log(`Server running on http://0.0.0.0:${PORT} (${isProduction ? 'production' : 'development'})`);
   });
 }
 

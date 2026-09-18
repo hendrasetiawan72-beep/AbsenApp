@@ -7,6 +7,7 @@ import {
   AttendanceSession,
   StudentGrade,
   TeacherWorkspaceData,
+  TeachingAgenda,
 } from '../types';
 
 /**
@@ -40,6 +41,7 @@ export const CloudStorage = {
       students: Student[];
       sessions: AttendanceSession[];
       grades: StudentGrade[];
+      agendas?: TeachingAgenda[];
     }
   ): Promise<boolean> {
     const payload: TeacherWorkspaceData = {
@@ -51,6 +53,7 @@ export const CloudStorage = {
       students: data.students,
       sessions: data.sessions,
       grades: data.grades,
+      agendas: data.agendas,
       updatedAt: new Date().toISOString(),
     };
 

@@ -18,6 +18,8 @@ import {
   MapPin,
   Sparkles,
   CheckSquare,
+  Wallet,
+  Database,
 } from 'lucide-react';
 import { ActiveTab, ClassRoom, TeacherProfile } from '../types';
 import { SchoolLogo } from './SchoolLogo';
@@ -35,6 +37,7 @@ interface NavbarProps {
   onOpenClassModal: () => void;
   onOpenEditClass?: (cls?: ClassRoom) => void;
   onOpenLoginModal: () => void;
+  onOpenBackupModal?: () => void;
   onResetData: () => void;
   onDeleteClass: (classId: string) => void;
   onLogout: () => void;
@@ -53,6 +56,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenClassModal,
   onOpenEditClass,
   onOpenLoginModal,
+  onOpenBackupModal,
   onResetData,
   onDeleteClass,
   onLogout,
@@ -173,6 +177,19 @@ export const Navbar: React.FC<NavbarProps> = ({
               )}
             </div>
 
+            {/* Backup & Restore Database JSON Button */}
+            {onOpenBackupModal && (
+              <button
+                id="btn-backup-restore-nav"
+                onClick={onOpenBackupModal}
+                title="Cadangkan & Pulihkan Seluruh Database ke File JSON Lokal (Kendali Penuh Guru)"
+                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-bold text-slate-700 bg-white hover:bg-slate-100 border border-slate-200/90 rounded-xl transition-all cursor-pointer shadow-2xs"
+              >
+                <Database className="w-3.5 h-3.5 text-indigo-600" />
+                <span className="hidden lg:inline">Backup Database</span>
+              </button>
+            )}
+
             {/* Profile Button with Avatar & Name */}
             <button
               id="btn-teacher-profile"
@@ -254,6 +271,19 @@ export const Navbar: React.FC<NavbarProps> = ({
             >
               <GraduationCap className="w-3.5 h-3.5" />
               <span>Rekap Nilai</span>
+            </button>
+
+            <button
+              id="tab-tabungan"
+              onClick={() => onSelectTab('tabungan')}
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-xl whitespace-nowrap transition-all cursor-pointer ${
+                activeTab === 'tabungan'
+                  ? 'bg-emerald-600 text-white shadow-xs ring-1 ring-emerald-400'
+                  : 'text-emerald-800 bg-emerald-50/70 hover:bg-emerald-100 border border-emerald-200/60'
+              }`}
+            >
+              <Wallet className="w-3.5 h-3.5 text-emerald-600" />
+              <span>Tabungan Siswa</span>
             </button>
 
             <button

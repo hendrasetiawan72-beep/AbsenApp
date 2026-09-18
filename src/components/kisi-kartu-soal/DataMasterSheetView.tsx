@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { MasterSoalItem, SheetTab } from '../../types/kisiKartuSoal';
-import { ArrowLeft, Plus, Trash2, Search, RotateCcw } from 'lucide-react';
+import { MasterSoalItem, SheetTab, SchoolIdentity } from '../../types/kisiKartuSoal';
+import { ArrowLeft, Plus, Trash2, Search, RotateCcw, Sparkles } from 'lucide-react';
 import { DEFAULT_MASTER_DATA } from '../../data/kisiKartuSoalDefaultData';
 
 interface DataMasterSheetViewProps {
@@ -8,6 +8,7 @@ interface DataMasterSheetViewProps {
   onChangeMasterData: (updated: MasterSoalItem[]) => void;
   onNavigateTab: (tab: SheetTab) => void;
   onShowToast: (msg: string, type: 'success' | 'info' | 'error') => void;
+  identitas?: SchoolIdentity;
 }
 
 export const DataMasterSheetView: React.FC<DataMasterSheetViewProps> = ({
@@ -15,6 +16,7 @@ export const DataMasterSheetView: React.FC<DataMasterSheetViewProps> = ({
   onChangeMasterData,
   onNavigateTab,
   onShowToast,
+  identitas,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -124,6 +126,33 @@ export const DataMasterSheetView: React.FC<DataMasterSheetViewProps> = ({
           </h2>
         </div>
 
+        {/* Synchronized Identity Information Bar */}
+        {identitas && (
+          <div className="bg-cyan-50/80 border-b border-cyan-200 px-4 py-2 flex flex-wrap items-center justify-between gap-2 text-xs">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="font-bold text-cyan-950">Mata Pelajaran:</span>
+              <span className="bg-white px-2 py-0.5 rounded font-bold text-slate-900 border border-cyan-300">
+                {identitas.mataPelajaran}
+              </span>
+              <span className="font-bold text-cyan-950 ml-1">Kelas/Semester:</span>
+              <span className="bg-white px-2 py-0.5 rounded font-bold text-slate-900 border border-cyan-300">
+                {identitas.kelasSemester}
+              </span>
+              <span className="font-bold text-cyan-950 ml-1">Bentuk Tes:</span>
+              <span className="bg-white px-2 py-0.5 rounded font-bold text-slate-900 border border-cyan-300">
+                {identitas.bentukTes}
+              </span>
+              <span className="font-bold text-cyan-950 ml-1">Kurikulum:</span>
+              <span className="bg-white px-2 py-0.5 rounded font-bold text-slate-900 border border-cyan-300">
+                {identitas.kurikulum}
+              </span>
+            </div>
+            <div className="text-[11px] text-cyan-900 font-semibold">
+              Penyusun: <strong className="text-slate-950">{identitas.penyusun}</strong> (NBM: {identitas.nbmPenyusun || '-'})
+            </div>
+          </div>
+        )}
+
         {/* Scrollable Spreadsheet Table */}
         <div className="overflow-x-auto max-h-[650px] overflow-y-auto">
           <table className="w-full text-left text-xs border-collapse">
@@ -155,7 +184,7 @@ export const DataMasterSheetView: React.FC<DataMasterSheetViewProps> = ({
                     <td className="p-1 border border-slate-200">
                       <input
                         type="text"
-                        value={item.elemen}
+                        value={item.elemen || ''}
                         onChange={(e) => handleCellChange(originalIndex, 'elemen', e.target.value)}
                         className="w-full p-1.5 text-xs bg-transparent focus:bg-white focus:ring-1 focus:ring-cyan-500 rounded border border-transparent hover:border-slate-300 font-semibold"
                       />
@@ -165,7 +194,7 @@ export const DataMasterSheetView: React.FC<DataMasterSheetViewProps> = ({
                     <td className="p-1 border border-slate-200">
                       <textarea
                         rows={3}
-                        value={item.capaianPembelajaran}
+                        value={item.capaianPembelajaran || ''}
                         onChange={(e) =>
                           handleCellChange(originalIndex, 'capaianPembelajaran', e.target.value)
                         }
@@ -177,7 +206,7 @@ export const DataMasterSheetView: React.FC<DataMasterSheetViewProps> = ({
                     <td className="p-1 border border-slate-200">
                       <textarea
                         rows={2}
-                        value={item.ipk}
+                        value={item.ipk || ''}
                         onChange={(e) => handleCellChange(originalIndex, 'ipk', e.target.value)}
                         className="w-full p-1.5 text-xs bg-transparent focus:bg-white focus:ring-1 focus:ring-cyan-500 rounded border border-transparent hover:border-slate-300 resize-y"
                       />
@@ -187,7 +216,7 @@ export const DataMasterSheetView: React.FC<DataMasterSheetViewProps> = ({
                     <td className="p-1 border border-slate-200">
                       <input
                         type="text"
-                        value={item.materi}
+                        value={item.materi || ''}
                         onChange={(e) => handleCellChange(originalIndex, 'materi', e.target.value)}
                         className="w-full p-1.5 text-xs bg-transparent focus:bg-white focus:ring-1 focus:ring-cyan-500 rounded border border-transparent hover:border-slate-300 font-medium"
                       />
@@ -197,7 +226,7 @@ export const DataMasterSheetView: React.FC<DataMasterSheetViewProps> = ({
                     <td className="p-1 border border-slate-200">
                       <textarea
                         rows={2}
-                        value={item.indikatorSoal}
+                        value={item.indikatorSoal || ''}
                         onChange={(e) =>
                           handleCellChange(originalIndex, 'indikatorSoal', e.target.value)
                         }
@@ -209,7 +238,7 @@ export const DataMasterSheetView: React.FC<DataMasterSheetViewProps> = ({
                     <td className="p-1 border border-slate-200 text-center">
                       <input
                         type="text"
-                        value={item.bentukTes}
+                        value={item.bentukTes || ''}
                         onChange={(e) => handleCellChange(originalIndex, 'bentukTes', e.target.value)}
                         className="w-full p-1.5 text-xs bg-transparent text-center focus:bg-white focus:ring-1 focus:ring-cyan-500 rounded border border-transparent hover:border-slate-300"
                       />

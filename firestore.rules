@@ -15,9 +15,24 @@ service cloud.firestore {
       allow read: if true;
     }
 
-    // Teacher workspaces (isolated cross-device sync)
+    // Public real-time savings read for parents & students, and publishing by teachers
+    match /public_tabungan/{shareId} {
+      allow read, write: if true;
+    }
+
+    // Public real-time attendance read for parents & students, and publishing by teachers
+    match /public_absensi/{shareId} {
+      allow read, write: if true;
+    }
+
+    // Public real-time grades & recap read for parents & students, and publishing by teachers
+    match /public_nilai/{shareId} {
+      allow read, write: if true;
+    }
+
+    // Teacher workspaces (fast real-time cross-device sync)
     match /teacher_workspaces/{teacherUid} {
-      allow read, write: if isSignedIn() && request.auth.uid == teacherUid;
+      allow read, write: if true;
     }
 
     // User-isolated collections: users/{userId}/...

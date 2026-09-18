@@ -21,8 +21,10 @@ import {
   BookOpen,
   GraduationCap,
   Info,
+  Globe,
+  Share2,
 } from 'lucide-react';
-import { Student, StudentGrade, Gender, GradeColumnHeader } from '../types';
+import { Student, StudentGrade, Gender, GradeColumnHeader, ClassRoom, TeacherProfile } from '../types';
 import { exportGradesToExcel } from '../utils/excel';
 import {
   getDefaultGradeHeaders,
@@ -30,6 +32,7 @@ import {
   calculateMonthlyStudentGrade,
 } from '../utils/gradeHeaders';
 import { Storage } from '../utils/storage';
+import { SharePublicNilaiModal } from './SharePublicNilaiModal';
 
 interface GradesViewProps {
   students: Student[];
@@ -53,6 +56,10 @@ interface GradesViewProps {
   onUpdateStudentField?: (studentId: string, field: keyof Student, value: any) => void;
   onEditStudent?: (student: Student) => void;
   onOpenEditClass?: () => void;
+  currentClass?: ClassRoom;
+  teacher?: TeacherProfile;
+  currentUid?: string;
+  onShowToast?: (message: string, type?: 'success' | 'error' | 'info') => void;
 }
 
 export const GradesView: React.FC<GradesViewProps> = ({
@@ -69,7 +76,12 @@ export const GradesView: React.FC<GradesViewProps> = ({
   onUpdateStudentField,
   onEditStudent,
   onOpenEditClass,
+  currentClass,
+  teacher,
+  currentUid = 'demo',
+  onShowToast,
 }) => {
+  const [showPublicShareModal, setShowPublicShareModal] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterStatus, setFilterStatus] = useState<'all' | 'tuntas' | 'belum'>('all');
   const [filterGender, setFilterGender] = useState<'all' | Gender>('all');
@@ -598,6 +610,16 @@ export const GradesView: React.FC<GradesViewProps> = ({
                   <span>Simpan Penilaian ke Cloud</span>
                 </>
               )}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setShowPublicShareModal(true)}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white text-xs font-black rounded-xl shadow-xs transition-all cursor-pointer"
+              title="Buat & bagikan tautan pratinjau nilai & rekapitulasi nilai untuk siswa & orang tua"
+            >
+              <Globe className="w-3.5 h-3.5 text-emerald-200" />
+              <span>Bagikan Link Nilai Siswa</span>
             </button>
 
             <button
@@ -1216,7 +1238,7 @@ export const GradesView: React.FC<GradesViewProps> = ({
                           {isQuickEditMode ? (
                             <input
                               type="text"
-                              value={student.nama}
+                              value={student.nama || ''}
                               onChange={(e) =>
                                 onUpdateStudentField?.(student.id, 'nama', e.target.value)
                               }
@@ -1591,7 +1613,7 @@ export const GradesView: React.FC<GradesViewProps> = ({
                           {isQuickEditMode ? (
                             <input
                               type="text"
-                              value={student.nama}
+                              value={student.nama || ''}
                               onChange={(e) =>
                                 onUpdateStudentField?.(student.id, 'nama', e.target.value)
                               }
@@ -2248,7 +2270,7 @@ export const GradesView: React.FC<GradesViewProps> = ({
                             </span>
                             <input
                               type="text"
-                              value={h.colLabel}
+                              value={h.colLabel || ''}
                               onChange={(e) =>
                                 handleUpdateHeader(key, 'colLabel', e.target.value)
                               }
@@ -2308,7 +2330,7 @@ export const GradesView: React.FC<GradesViewProps> = ({
                     </span>
                     <input
                       type="text"
-                      value={stsHeader.colLabel}
+                      value={stsHeader.colLabel || ''}
                       onChange={(e) =>
                         handleUpdateSumatifHeader('sts', 'colLabel', e.target.value)
                       }
@@ -2356,7 +2378,7 @@ export const GradesView: React.FC<GradesViewProps> = ({
                     </span>
                     <input
                       type="text"
-                      value={sasHeader.colLabel}
+                      value={sasHeader.colLabel || ''}
                       onChange={(e) =>
                         handleUpdateSumatifHeader('sas', 'colLabel', e.target.value)
                       }
@@ -2421,6 +2443,35 @@ export const GradesView: React.FC<GradesViewProps> = ({
           </div>
         </div>
       )}
+
+      {/* Share Public Nilai Modal for Students and Parents */}
+      <SharePublicNilaiModal
+        isOpen={showPublicShareModal}
+        onClose={() => setShowPublicShareModal(false)}
+        currentClass={
+          currentClass || {
+            id: classId,
+            namaKelas: className,
+            mataPelajaran,
+            kkm,
+            tingkat: '',
+            jurusan: '',
+          }
+        }
+        teacher={
+          teacher || {
+            namaGuru: '',
+            namaSekolah: 'SMK Muhammadiyah Bawang',
+            semester: safeSemester,
+            tahunAjaran: academicYear,
+          }
+        }
+        students={students}
+        grades={localGrades}
+        kkm={kkm}
+        onShowToast={onShowToast || ((msg) => console.log(msg))}
+        currentUid={currentUid || 'demo'}
+      />
     </div>
   );
 };

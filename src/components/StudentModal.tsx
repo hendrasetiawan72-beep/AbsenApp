@@ -27,10 +27,10 @@ export const StudentModal: React.FC<StudentModalProps> = ({
 
   useEffect(() => {
     if (editingStudent) {
-      setNo(editingStudent.no);
-      setNisn(editingStudent.nisn);
-      setNama(editingStudent.nama);
-      setGender(editingStudent.gender);
+      setNo(editingStudent.no ?? nextNo);
+      setNisn(editingStudent.nisn || '');
+      setNama(editingStudent.nama || '');
+      setGender(editingStudent.gender || 'L');
       setCatatanUmum(editingStudent.catatanUmum || '');
     } else {
       setNo(nextNo);

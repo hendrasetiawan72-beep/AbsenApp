@@ -133,6 +133,7 @@ export interface TeacherWorkspaceData {
   students: Student[];
   sessions: AttendanceSession[];
   grades: StudentGrade[];
+  agendas?: TeachingAgenda[];
   updatedAt: string;
 }
 
@@ -232,5 +233,56 @@ export interface ModulAjarPromptData {
   createdAt?: string;
 }
 
-export type ActiveTab = 'absensi' | 'nilai' | 'statistik' | 'agenda' | 'generator-modul' | 'impor' | 'laporan-ortu' | 'workspace' | 'peta' | 'kisi-kartu-soal';
+export * from './types/tabungan';
+
+export interface FullDatabaseBackup {
+  app: string;
+  version: string;
+  exportedAt: string;
+  exportedAtFormatted: string;
+  exportedBy: {
+    namaGuru: string;
+    nip: string;
+    nbm?: string;
+    namaSekolah: string;
+    email?: string;
+  };
+  summary: {
+    totalClasses: number;
+    totalStudents: number;
+    totalAttendanceSessions: number;
+    totalGrades: number;
+    totalAgendas: number;
+    totalSavingsTransactions: number;
+  };
+  data: {
+    teacher: TeacherProfile;
+    classes: ClassRoom[];
+    activeClassId: string;
+    students: Student[];
+    sessions: AttendanceSession[];
+    grades: StudentGrade[];
+    agendas: TeachingAgenda[];
+    gradeHeaders?: Record<string, GradeColumnHeader[]>;
+    savings?: import('./types/tabungan').SavingTransaction[];
+    kisiKartuSoal?: {
+      identitas?: any;
+      masterData?: any[];
+      soalData?: any[];
+    };
+  };
+}
+
+export type ActiveTab =
+  | 'absensi'
+  | 'nilai'
+  | 'tabungan'
+  | 'statistik'
+  | 'agenda'
+  | 'generator-modul'
+  | 'impor'
+  | 'laporan-ortu'
+  | 'workspace'
+  | 'peta'
+  | 'kisi-kartu-soal';
 

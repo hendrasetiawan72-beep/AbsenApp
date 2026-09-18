@@ -76,7 +76,7 @@ export const KisiKisiSheetView: React.FC<KisiKisiSheetViewProps> = ({
             KISI-KISI DAN SOAL
           </h2>
           <h3 className="text-sm sm:text-base font-black tracking-wide uppercase text-slate-800">
-            PENILAIAN TENGAH SEMESTER
+            {identitas.jenisTes ? identitas.jenisTes.toUpperCase() : 'PENILAIAN TENGAH SEMESTER'}
           </h3>
           <p className="text-sm font-bold text-slate-700">
             TAHUN AJARAN {identitas.tahunAjaran}
@@ -88,6 +88,10 @@ export const KisiKisiSheetView: React.FC<KisiKisiSheetViewProps> = ({
           <div className="flex items-center gap-2">
             <span className="w-36 text-slate-700">Satuan Pendidikan</span>
             <span>: {identitas.namaSekolah}</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="w-36 text-slate-700">Alamat Sekolah</span>
+            <span>: {identitas.alamatSekolah || 'Jalan Sukorejo - Bawang km 01'}</span>
           </div>
           <div className="flex items-center gap-2">
             <span className="w-36 text-slate-700">Kelas / Semester</span>
@@ -158,7 +162,7 @@ export const KisiKisiSheetView: React.FC<KisiKisiSheetViewProps> = ({
           <div className="text-center">
             <p className="mb-16">{identitas.tanggalPenyusunan}<br />Guru Mata Pelajaran</p>
             <p className="font-bold underline">{identitas.penyusun}</p>
-            <p className="text-[11px] text-slate-500">NIP: {identitas.nipPenyusun}</p>
+            <p className="text-[11px] text-slate-600 font-semibold">NBM: {identitas.nbmPenyusun || '-'}</p>
           </div>
         </div>
       </div>

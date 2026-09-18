@@ -18,7 +18,95 @@ const STORAGE_KEYS = {
   GRADES: 'absensi_grades',
   GRADE_HEADERS: 'absensi_grade_headers',
   AGENDAS: 'absensi_teaching_agendas',
+  SAVINGS: 'absensi_student_savings',
 };
+
+const DEFAULT_SAVINGS_CLASS_1: import('../types').SavingTransaction[] = [
+  {
+    id: 'tx-101-1',
+    classId: 'class-1',
+    studentId: 'std-101',
+    studentName: 'Achmad Fauzan Pratama',
+    nisn: '0071234001',
+    tanggal: '2025-08-04',
+    jenis: 'setor',
+    nominal: 10000,
+    kategori: 'harian',
+    keterangan: 'Setoran tabungan awal semester',
+    petugas: 'Wali Kelas',
+    createdAt: '2025-08-04T07:30:00.000Z',
+  },
+  {
+    id: 'tx-102-1',
+    classId: 'class-1',
+    studentId: 'std-102',
+    studentName: 'Aisyah Putri Azzahra',
+    nisn: '0071234002',
+    tanggal: '2025-08-04',
+    jenis: 'setor',
+    nominal: 20000,
+    kategori: 'study_tour',
+    keterangan: 'Cicilan tabungan study tour industri',
+    petugas: 'Bendahara Kelas',
+    createdAt: '2025-08-04T07:35:00.000Z',
+  },
+  {
+    id: 'tx-103-1',
+    classId: 'class-1',
+    studentId: 'std-103',
+    studentName: 'Bayu Aditya Nugraha',
+    nisn: '0071234003',
+    tanggal: '2025-08-05',
+    jenis: 'setor',
+    nominal: 15000,
+    kategori: 'harian',
+    keterangan: 'Tabungan harian',
+    petugas: 'Wali Kelas',
+    createdAt: '2025-08-05T07:20:00.000Z',
+  },
+  {
+    id: 'tx-104-1',
+    classId: 'class-1',
+    studentId: 'std-104',
+    studentName: 'Cantika Dewi Maharani',
+    nisn: '0071234004',
+    tanggal: '2025-08-05',
+    jenis: 'setor',
+    nominal: 25000,
+    kategori: 'harian',
+    keterangan: 'Tabungan mingguan',
+    petugas: 'Bendahara Kelas',
+    createdAt: '2025-08-05T07:40:00.000Z',
+  },
+  {
+    id: 'tx-106-1',
+    classId: 'class-1',
+    studentId: 'std-106',
+    studentName: 'Fadilla Nur Hasanah',
+    nisn: '0071234006',
+    tanggal: '2025-08-06',
+    jenis: 'setor',
+    nominal: 10000,
+    kategori: 'harian',
+    keterangan: 'Setoran saku harian',
+    petugas: 'Wali Kelas',
+    createdAt: '2025-08-06T07:15:00.000Z',
+  },
+  {
+    id: 'tx-101-2',
+    classId: 'class-1',
+    studentId: 'std-101',
+    studentName: 'Achmad Fauzan Pratama',
+    nisn: '0071234001',
+    tanggal: '2025-08-08',
+    jenis: 'tarik',
+    nominal: 5000,
+    kategori: 'lks_buku',
+    keterangan: 'Pembelian buku modul kejuruan',
+    petugas: 'Wali Kelas',
+    createdAt: '2025-08-08T09:00:00.000Z',
+  },
+];
 
 // Initial Empty Teacher Profile (Clean state for real authentication)
 const DEFAULT_TEACHER: TeacherProfile = {
@@ -347,6 +435,24 @@ export const Storage = {
     return all.filter((a) => a.classId === classId);
   },
 
+  getAllSavings(): import('../types').SavingTransaction[] {
+    try {
+      const data = localStorage.getItem(STORAGE_KEYS.SAVINGS);
+      return data ? JSON.parse(data) : DEFAULT_SAVINGS_CLASS_1;
+    } catch {
+      return DEFAULT_SAVINGS_CLASS_1;
+    }
+  },
+
+  setAllSavings(savings: import('../types').SavingTransaction[]): void {
+    localStorage.setItem(STORAGE_KEYS.SAVINGS, JSON.stringify(savings));
+  },
+
+  getSavingsByClass(classId: string): import('../types').SavingTransaction[] {
+    const all = this.getAllSavings();
+    return all.filter((s) => s.classId === classId);
+  },
+
   // Reset to default demo data
   resetToDefault(): void {
     localStorage.setItem(STORAGE_KEYS.TEACHER, JSON.stringify(DEFAULT_TEACHER));
@@ -355,6 +461,7 @@ export const Storage = {
     localStorage.setItem(STORAGE_KEYS.STUDENTS, JSON.stringify(DEFAULT_STUDENTS_CLASS_1));
     localStorage.setItem(STORAGE_KEYS.ATTENDANCE, JSON.stringify(DEFAULT_SESSIONS_CLASS_1));
     localStorage.setItem(STORAGE_KEYS.GRADES, JSON.stringify(DEFAULT_GRADES_CLASS_1));
+    localStorage.setItem(STORAGE_KEYS.SAVINGS, JSON.stringify(DEFAULT_SAVINGS_CLASS_1));
     localStorage.removeItem(STORAGE_KEYS.AGENDAS);
   },
 };
