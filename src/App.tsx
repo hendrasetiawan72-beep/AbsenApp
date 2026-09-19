@@ -232,7 +232,7 @@ export default function App() {
     setIsCloudLoading(true);
     setCloudStatusMsg('Mengambil data terbaru dari Cloud Firestore...');
     try {
-      const userData = await FirestoreService.loadUserData(uid);
+      const userData = await FirestoreService.loadUserData(uid, true);
       if (userData.isNewUser) {
         showToast('Data di Cloud Firestore masih kosong. Data lokal Anda tetap aktif.', 'info');
       } else {
@@ -587,6 +587,10 @@ export default function App() {
         };
       });
       Storage.setAllSessions(next);
+      // Real-time debounced cloud streaming in background (instant UI, no wait)
+      if (auth.currentUser?.uid) {
+        FirestoreService.queueWorkspaceSync(auth.currentUser.uid, { sessions: next });
+      }
       return next;
     });
   };
@@ -611,6 +615,9 @@ export default function App() {
         };
       });
       Storage.setAllSessions(next);
+      if (auth.currentUser?.uid) {
+        FirestoreService.queueWorkspaceSync(auth.currentUser.uid, { sessions: next });
+      }
       return next;
     });
   };
@@ -629,10 +636,13 @@ export default function App() {
         return { ...ses, records: newRecords };
       });
       Storage.setAllSessions(next);
+      if (auth.currentUser?.uid) {
+        FirestoreService.queueWorkspaceSync(auth.currentUser.uid, { sessions: next });
+      }
       return next;
     });
     showToast(
-      'Semua siswa berhasil diset Masuk (Hadir). Klik "Simpan Presensi ke Cloud (Save)" untuk menyimpan.',
+      'Semua siswa berhasil diset Masuk (Hadir) & otomatis disinkronisasi.',
       'info'
     );
   };
@@ -644,10 +654,13 @@ export default function App() {
         return { ...ses, records: {} };
       });
       Storage.setAllSessions(next);
+      if (auth.currentUser?.uid) {
+        FirestoreService.queueWorkspaceSync(auth.currentUser.uid, { sessions: next });
+      }
       return next;
     });
     showToast(
-      'Status presensi direset. Klik tombol "Simpan Presensi ke Cloud (Save)" untuk menyimpan perubahan.',
+      'Status presensi direset & otomatis disinkronisasi.',
       'info'
     );
   };
@@ -656,12 +669,12 @@ export default function App() {
   const handleSaveAttendanceToCloud = async (sessionId?: string) => {
     // Helper to auto-sync attendance snapshot to public collection for real-time parent monitoring
     const syncPublicAbsensi = (targetSessions: AttendanceSession[]) => {
-      if (!currentClass?.id) return;
+      if (!currentClass?.id) return Promise.resolve();
       const shareId = FirestoreService.getPublicAbsensiShareId(
         auth.currentUser?.uid || 'guru',
         currentClass.id
       );
-      FirestoreService.publishPublicAbsensi({
+      return FirestoreService.publishPublicAbsensi({
         shareId,
         classId: currentClass.id,
         className: currentClass.namaKelas,
@@ -698,18 +711,24 @@ export default function App() {
       const targetSession = allSessions.find((s) => s.id === sessionId);
       if (targetSession) {
         showToast(
-          `Data presensi Pertemuan ${targetSession.pertemuanKe} (${currentClass.namaKelas}) tersimpan ke Cloud!`,
-          'success'
+          `Menyimpan presensi Pertemuan ${targetSession.pertemuanKe} (${currentClass.namaKelas}) ke Cloud...`,
+          'info'
         );
-        FirestoreService.saveAttendanceSession(
-          auth.currentUser.uid,
-          targetSession,
-          allSessions
-        )
+        // Execute session write and public sync in parallel
+        Promise.all([
+          FirestoreService.saveAttendanceSession(
+            auth.currentUser.uid,
+            targetSession,
+            allSessions
+          ),
+          syncPublicAbsensi(allSessions.filter((s) => s.classId === activeClassId)),
+        ])
           .then(() => {
             setIsCloudSaving(false);
-            // Real-time background sync to public absensi so parents' preview updates instantly
-            syncPublicAbsensi(allSessions.filter((s) => s.classId === activeClassId));
+            showToast(
+              `Presensi Pertemuan ${targetSession.pertemuanKe} (${currentClass.namaKelas}) berhasil tersimpan ke Cloud!`,
+              'success'
+            );
           })
           .catch((err: any) => {
             console.error('Error saving attendance to Firestore:', err);
@@ -723,18 +742,23 @@ export default function App() {
         (s) => s.classId === activeClassId
       );
       showToast(
-        `Seluruh rekap presensi (${classSessionsToSave.length} pertemuan) tersimpan ke Cloud!`,
-        'success'
+        `Menyimpan seluruh rekap presensi (${classSessionsToSave.length} pertemuan) ke Cloud...`,
+        'info'
       );
-      FirestoreService.saveAttendanceSessionsBatch(
-        auth.currentUser.uid,
-        classSessionsToSave,
-        allSessions
-      )
+      Promise.all([
+        FirestoreService.saveAttendanceSessionsBatch(
+          auth.currentUser.uid,
+          classSessionsToSave,
+          allSessions
+        ),
+        syncPublicAbsensi(classSessionsToSave),
+      ])
         .then(() => {
           setIsCloudSaving(false);
-          // Real-time background sync to public absensi
-          syncPublicAbsensi(classSessionsToSave);
+          showToast(
+            `Seluruh rekap presensi (${classSessionsToSave.length} pertemuan) berhasil tersimpan ke Cloud!`,
+            'success'
+          );
         })
         .catch((err: any) => {
           console.error('Error saving attendance batch to Firestore:', err);
@@ -954,44 +978,46 @@ export default function App() {
     field: keyof StudentGrade,
     value: number | string | null
   ) => {
-    let targetGrade: StudentGrade | null = null;
     setAllGrades((prev) => {
+      let next: StudentGrade[];
       const existing = prev.find(
         (g) => g.studentId === studentId && g.classId === activeClassId
       );
       if (existing) {
-        return prev.map((g) => {
+        next = prev.map((g) => {
           if (g.studentId === studentId && g.classId === activeClassId) {
-            const updated = { ...g, [field]: value };
-            targetGrade = updated;
-            return updated;
+            return { ...g, [field]: value };
           }
           return g;
         });
+      } else {
+        const newGrade: StudentGrade = {
+          id: 'grd-' + studentId,
+          studentId,
+          classId: activeClassId,
+          formatif1: null,
+          formatif2: null,
+          formatif3: null,
+          formatif4: null,
+          formatif5: null,
+          formatif6: null,
+          formatif7: null,
+          formatif8: null,
+          formatif9: null,
+          formatif10: null,
+          sumatifTengah: null,
+          sumatifAkhir: null,
+          praktik: null,
+          catatan: '',
+          [field]: value,
+        };
+        next = [...prev, newGrade];
       }
-      // Create new row
-      const newGrade: StudentGrade = {
-        id: 'grd-' + studentId,
-        studentId,
-        classId: activeClassId,
-        formatif1: null,
-        formatif2: null,
-        formatif3: null,
-        formatif4: null,
-        formatif5: null,
-        formatif6: null,
-        formatif7: null,
-        formatif8: null,
-        formatif9: null,
-        formatif10: null,
-        sumatifTengah: null,
-        sumatifAkhir: null,
-        praktik: null,
-        catatan: '',
-        [field]: value,
-      };
-      targetGrade = newGrade;
-      return [...prev, newGrade];
+      Storage.setAllGrades(next);
+      if (auth.currentUser?.uid) {
+        FirestoreService.queueWorkspaceSync(auth.currentUser.uid, { grades: next });
+      }
+      return next;
     });
   };
 
@@ -1022,12 +1048,15 @@ export default function App() {
 
     setIsCloudSaving(true);
     try {
-      await FirestoreService.saveGradesBatch(auth.currentUser.uid, updatedGrades);
-      await FirestoreService.saveGradeHeaders(
-        auth.currentUser.uid,
-        activeClassId,
-        updatedHeaders
-      );
+      // Execute grades batch and headers concurrently for 2x faster sync
+      await Promise.all([
+        FirestoreService.saveGradesBatch(auth.currentUser.uid, updatedGrades),
+        FirestoreService.saveGradeHeaders(
+          auth.currentUser.uid,
+          activeClassId,
+          updatedHeaders
+        ),
+      ]);
       showToast(
         'Seluruh data penilaian & keterangan kolom berhasil disimpan ke Cloud Firestore!',
         'success'

@@ -140,6 +140,14 @@
     "/public_tabungan/{shareId}": {
       "schema": "TeacherWorkspace",
       "description": "Snapshot data publik tabungan kelas yang dapat dipantau orang tua secara real-time"
+    },
+    "/public_absensi/{shareId}": {
+      "schema": "TeacherWorkspace",
+      "description": "Snapshot data publik presensi kelas yang dapat dipantau orang tua secara real-time"
+    },
+    "/public_nilai/{shareId}": {
+      "schema": "TeacherWorkspace",
+      "description": "Snapshot data publik nilai dan rekap kelas yang dapat dipantau siswa dan orang tua secara real-time"
     }
   }
 }

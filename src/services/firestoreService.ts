@@ -121,7 +121,7 @@ export const FirestoreService = {
       updatedAt: new Date().toISOString(),
     };
 
-    // 3. Debounce the cloud write (350ms) to coalesce rapid consecutive writes
+    // 3. Debounce the cloud write (200ms) to coalesce rapid consecutive writes
     if (workspaceDebounceTimers[uid]) {
       clearTimeout(workspaceDebounceTimers[uid]);
     }
@@ -139,7 +139,7 @@ export const FirestoreService = {
       } catch (err) {
         console.warn('[FirestoreService] Debounced workspace write error:', err);
       }
-    }, 350);
+    }, 200);
   },
 
   /**
@@ -163,15 +163,45 @@ export const FirestoreService = {
 
   /**
    * Load all teacher data isolated by UID from Cloud Firestore
-   * Optimized with 1-doc fast path (<150ms), local cache, and timeout safeguards.
+   * Optimized with 1-doc fast path (<150ms), instant memory/local cache, and timeout safeguards.
    */
-  async loadUserData(uid: string): Promise<UserWorkspaceData> {
+  async loadUserData(uid: string, forceRemote: boolean = false): Promise<UserWorkspaceData> {
     if (!uid) {
       throw new Error('User UID tidak valid untuk memuat data Firestore.');
     }
 
     // 0. Check instant memory or localStorage cache first
     const cachedData = this.getCachedUserData(uid);
+    if (!forceRemote && cachedData && Array.isArray(cachedData.classes) && cachedData.classes.length > 0) {
+      // Instant return (0ms) so the UI loads without any blocking wait
+      // Revalidate in the background asynchronously
+      setTimeout(() => {
+        const wsRef = doc(db, 'teacher_workspaces', uid);
+        getDoc(wsRef)
+          .then((wsSnap) => {
+            if (wsSnap.exists()) {
+              const wsData = wsSnap.data() as any;
+              if (wsData && Array.isArray(wsData.classes) && wsData.classes.length > 0) {
+                const updated: UserWorkspaceData = {
+                  teacher: wsData.teacher || cachedData.teacher,
+                  classes: wsData.classes,
+                  activeClassId: wsData.activeClassId || cachedData.activeClassId,
+                  students: Array.isArray(wsData.students) ? wsData.students : cachedData.students,
+                  sessions: Array.isArray(wsData.sessions) ? wsData.sessions : cachedData.sessions,
+                  grades: Array.isArray(wsData.grades) ? wsData.grades : cachedData.grades,
+                  agendas: Array.isArray(wsData.agendas) ? wsData.agendas : cachedData.agendas,
+                  savings: Array.isArray(wsData.savings) ? wsData.savings : cachedData.savings,
+                  isNewUser: false,
+                };
+                memoryWorkspaceCache[uid] = { data: updated, timestamp: Date.now() };
+                localStorage.setItem(`smk_ws_cache_${uid}`, JSON.stringify(updated));
+              }
+            }
+          })
+          .catch(() => {});
+      }, 100);
+      return cachedData;
+    }
 
     const updateLocalCache = (data: UserWorkspaceData) => {
       try {
@@ -616,7 +646,19 @@ export const FirestoreService = {
     const sessionsList = allSessions || Storage.getAllSessions();
     this.queueWorkspaceSync(uid, { sessions: sessionsList });
 
-    await subColPromise;
+    // Write directly to unified workspace doc concurrently for ultra-fast sync
+    const wsRef = doc(db, 'teacher_workspaces', uid);
+    const wsPromise = setDoc(
+      wsRef,
+      sanitizeForFirestore({
+        teacherUid: uid,
+        sessions: sessionsList,
+        updatedAt: new Date().toISOString(),
+      }),
+      { merge: true }
+    );
+
+    await Promise.all([subColPromise, wsPromise]);
   },
 
   /**
@@ -639,11 +681,21 @@ export const FirestoreService = {
     });
     const batchPromise = batch.commit();
 
-    // Queue debounced unified workspace snapshot
+    // Concurrently write to consolidated workspace document
     const sessionsList = allSessions || Storage.getAllSessions();
     this.queueWorkspaceSync(uid, { sessions: sessionsList });
+    const wsRef = doc(db, 'teacher_workspaces', uid);
+    const wsPromise = setDoc(
+      wsRef,
+      sanitizeForFirestore({
+        teacherUid: uid,
+        sessions: sessionsList,
+        updatedAt: new Date().toISOString(),
+      }),
+      { merge: true }
+    );
 
-    await batchPromise;
+    await Promise.all([batchPromise, wsPromise]);
   },
 
   /**
@@ -678,7 +730,18 @@ export const FirestoreService = {
     const gradesList = allGrades || Storage.getAllGrades();
     this.queueWorkspaceSync(uid, { grades: gradesList });
 
-    await subColPromise;
+    const wsRef = doc(db, 'teacher_workspaces', uid);
+    const wsPromise = setDoc(
+      wsRef,
+      sanitizeForFirestore({
+        teacherUid: uid,
+        grades: gradesList,
+        updatedAt: new Date().toISOString(),
+      }),
+      { merge: true }
+    );
+
+    await Promise.all([subColPromise, wsPromise]);
   },
 
   /**
@@ -699,8 +762,18 @@ export const FirestoreService = {
 
     const gradesList = allGrades || Storage.getAllGrades();
     this.queueWorkspaceSync(uid, { grades: gradesList });
+    const wsRef = doc(db, 'teacher_workspaces', uid);
+    const wsPromise = setDoc(
+      wsRef,
+      sanitizeForFirestore({
+        teacherUid: uid,
+        grades: gradesList,
+        updatedAt: new Date().toISOString(),
+      }),
+      { merge: true }
+    );
 
-    await batchPromise;
+    await Promise.all([batchPromise, wsPromise]);
   },
 
   /**

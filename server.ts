@@ -353,12 +353,7 @@ Hasilkan sebuah objek JSON valid dengan struktur yang persis seperti berikut (ta
   });
 
   // Vite middleware setup
-  const distPath = path.join(process.cwd(), 'dist');
-  const hasDistIndex = fs.existsSync(path.join(distPath, 'index.html'));
-  const isProduction =
-    process.env.NODE_ENV === 'production' ||
-    Boolean(process.env.K_SERVICE) ||
-    hasDistIndex;
+  const isProduction = process.env.NODE_ENV === 'production';
 
   if (!isProduction) {
     const { createServer: createViteServer } = await import('vite');
@@ -368,6 +363,7 @@ Hasilkan sebuah objek JSON valid dengan struktur yang persis seperti berikut (ta
     });
     app.use(vite.middlewares);
   } else {
+    const distPath = path.join(process.cwd(), 'dist');
     app.use(express.static(distPath));
     app.get('*', (req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));

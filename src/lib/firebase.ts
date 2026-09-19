@@ -13,7 +13,7 @@ import firebaseConfig from '../../firebase-applet-config.json';
 export const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 
-// Use initializeFirestore with experimentalForceLongPolling to avoid 10-second WebChannel stream timeouts
+// Use initializeFirestore with experimentalForceLongPolling to avoid WebChannel stream timeouts
 // in reverse proxies, cloud sandbox iframes, and restricted network environments.
 let firestoreDb;
 try {
