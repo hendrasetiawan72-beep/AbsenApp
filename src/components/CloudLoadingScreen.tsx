@@ -1,18 +1,29 @@
-import React from 'react';
-import { Cloud, Loader2, Database, ShieldCheck } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Cloud, Loader2, Database, ShieldCheck, ArrowRight } from 'lucide-react';
 import { SchoolLogo } from './SchoolLogo';
 
 interface CloudLoadingScreenProps {
   userEmail?: string;
   userName?: string;
   statusMessage?: string;
+  onSkip?: () => void;
 }
 
 export const CloudLoadingScreen: React.FC<CloudLoadingScreenProps> = ({
   userEmail,
   userName,
   statusMessage = 'Menghubungkan ke Cloud Firestore...',
+  onSkip,
 }) => {
+  const [canSkip, setCanSkip] = useState(false);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setCanSkip(true);
+    }, 2200);
+    return () => clearTimeout(timer);
+  }, []);
+
   return (
     <div className="min-h-screen bg-slate-50/80 flex flex-col justify-center items-center p-4 sm:p-6 font-sans">
       <div className="w-full max-w-md bg-white rounded-3xl p-8 border border-slate-200/80 shadow-xl shadow-slate-200/50 flex flex-col items-center text-center">
@@ -29,7 +40,7 @@ export const CloudLoadingScreen: React.FC<CloudLoadingScreenProps> = ({
         {/* Loading Spinner & Status Heading */}
         <div className="flex items-center gap-2.5 text-indigo-700 font-bold text-lg mb-2">
           <Loader2 className="w-5 h-5 animate-spin shrink-0 text-indigo-600" />
-          <span>Memuat Data dari Cloud</span>
+          <span>Menghubungkan ke Cloud Server</span>
         </div>
 
         <p className="text-slate-600 text-sm mb-6 leading-relaxed max-w-sm">
@@ -64,11 +75,24 @@ export const CloudLoadingScreen: React.FC<CloudLoadingScreenProps> = ({
           <div className="h-3 bg-slate-100 rounded-full w-1/2 mx-auto animate-pulse" />
         </div>
 
+        {/* Skip to Local Data button if cloud connection is slow */}
+        {canSkip && onSkip && (
+          <button
+            type="button"
+            onClick={onSkip}
+            className="mt-5 w-full py-2.5 px-4 rounded-xl border border-indigo-200 bg-indigo-50/70 hover:bg-indigo-100 text-indigo-700 text-xs font-semibold flex items-center justify-center gap-2 transition-all"
+          >
+            <span>Buka Aplikasi Sekarang (Gunakan Data Lokal)</span>
+            <ArrowRight className="w-3.5 h-3.5" />
+          </button>
+        )}
+
         <div className="mt-6 flex items-center gap-2 text-[11px] text-slate-400 font-medium">
           <Database className="w-3.5 h-3.5 text-indigo-500" />
-          <span>Cloud Firestore Multi-Device Sync Active</span>
+          <span>Sinkronisasi Cloud Firestore Aktif & Cepat</span>
         </div>
       </div>
     </div>
   );
 };
+

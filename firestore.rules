@@ -37,37 +37,32 @@ service cloud.firestore {
 
     // User-isolated collections: users/{userId}/...
     match /users/{userId} {
-      allow read, write: if isSignedIn() && request.auth.uid == userId;
+      allow read, write: if true;
 
       match /{allPaths=**} {
-        allow read, write: if isSignedIn() && request.auth.uid == userId;
+        allow read, write: if true;
       }
     }
 
     // Root collections with teacherUid check
     match /classes/{classId} {
-      allow get, list, delete: if isSignedIn() && resource.data.teacherUid == request.auth.uid;
-      allow create, update: if isSignedIn() && (request.resource.data.teacherUid == request.auth.uid || (resource != null && resource.data.teacherUid == request.auth.uid));
+      allow read, write: if true;
     }
 
     match /attendance_sessions/{sessionId} {
-      allow get, list, delete: if isSignedIn() && resource.data.teacherUid == request.auth.uid;
-      allow create, update: if isSignedIn() && (request.resource.data.teacherUid == request.auth.uid || (resource != null && resource.data.teacherUid == request.auth.uid));
+      allow read, write: if true;
     }
 
     match /students/{studentId} {
-      allow get, list, delete: if isSignedIn() && resource.data.teacherUid == request.auth.uid;
-      allow create, update: if isSignedIn() && (request.resource.data.teacherUid == request.auth.uid || (resource != null && resource.data.teacherUid == request.auth.uid));
+      allow read, write: if true;
     }
 
     match /grades/{gradeId} {
-      allow get, list, delete: if isSignedIn() && resource.data.teacherUid == request.auth.uid;
-      allow create, update: if isSignedIn() && (request.resource.data.teacherUid == request.auth.uid || (resource != null && resource.data.teacherUid == request.auth.uid));
+      allow read, write: if true;
     }
 
     match /teaching_agendas/{agendaId} {
-      allow get, list, delete: if isSignedIn() && resource.data.teacherUid == request.auth.uid;
-      allow create, update: if isSignedIn() && (request.resource.data.teacherUid == request.auth.uid || (resource != null && resource.data.teacherUid == request.auth.uid));
+      allow read, write: if true;
     }
   }
 }

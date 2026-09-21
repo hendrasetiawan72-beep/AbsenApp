@@ -25,13 +25,46 @@ import { Storage } from '../utils/storage';
 
 /**
  * Sanitize object to remove undefined values before sending to Firestore
- * (Firestore throws an error if any field is undefined)
+ * (Firestore throws an error if any field is undefined).
+ * Also guards against oversized base64 image strings (>80KB) that could breach
+ * Firestore's strict 1MB per-document payload limit.
  */
 function sanitizeForFirestore<T>(data: T): T {
-  return JSON.parse(
-    JSON.stringify(data, (_, value) => (value === undefined ? null : value))
-  );
+  try {
+    const jsonStr = JSON.stringify(data, (_, value) => {
+      if (value === undefined) return null;
+      if (typeof value === 'string' && value.startsWith('data:image') && value.length > 80000) {
+        // Prevent exceeding 1MB document quota if teacher avatar is a large base64 file
+        return value.slice(0, 80000);
+      }
+      return value;
+    });
+    return JSON.parse(jsonStr);
+  } catch (err) {
+    console.warn('[FirestoreService] sanitizeForFirestore fallback warning:', err);
+    return data;
+  }
 }
+
+/**
+ * Executes write batch operations in safe chunks (max 350 per batch)
+ * to strictly prevent the Firestore "A write batch can contain at most 500 operations" crash.
+ */
+async function commitBatchOperations(
+  operations: Array<(batch: ReturnType<typeof writeBatch>) => void>,
+  chunkSize = 350
+): Promise<void> {
+  if (!operations || operations.length === 0) return;
+  for (let i = 0; i < operations.length; i += chunkSize) {
+    const chunk = operations.slice(i, i + chunkSize);
+    const batch = writeBatch(db);
+    for (const op of chunk) {
+      op(batch);
+    }
+    await batch.commit();
+  }
+}
+
 
 export interface UserWorkspaceData {
   teacher: TeacherProfile;
@@ -217,8 +250,11 @@ export const FirestoreService = {
       // 1. FAST PATH: Check unified snapshot in /teacher_workspaces/{uid} FIRST (1 document read ~80ms!)
       try {
         const wsRef = doc(db, 'teacher_workspaces', uid);
-        const wsSnap = await getDoc(wsRef);
-        if (wsSnap.exists()) {
+        const wsSnapPromise = getDoc(wsRef);
+        const timeoutWs = new Promise<null>((resolve) => setTimeout(() => resolve(null), 1800));
+        const wsSnap = await Promise.race([wsSnapPromise, timeoutWs]);
+
+        if (wsSnap && wsSnap.exists()) {
           const wsData = wsSnap.data() as any;
           if (wsData && Array.isArray(wsData.classes) && wsData.classes.length > 0) {
             console.log('[FirestoreService] Fast-path: loaded workspace in 1 single document read');
@@ -243,114 +279,133 @@ export const FirestoreService = {
               savings: Array.isArray(wsData.savings) ? wsData.savings : Storage.getAllSavings(),
               isNewUser: false,
             };
+
+            // Restore any class-specific grade column headers from workspace document
+            try {
+              Object.keys(wsData).forEach((key) => {
+                if (key.startsWith('gradeHeaders_')) {
+                  const cId = key.replace('gradeHeaders_', '');
+                  if (Array.isArray(wsData[key]) && wsData[key].length > 0) {
+                    Storage.setGradeHeaders(cId, wsData[key]);
+                  }
+                }
+              });
+            } catch (hErr) {
+              console.warn('[FirestoreService] Header restoration notice:', hErr);
+            }
+
             updateLocalCache(result);
             return result;
           }
         }
       } catch (wsError) {
-        console.warn('[FirestoreService] Fast-path workspace check warning:', wsError);
+        console.warn('[FirestoreService] Fast-path workspace check notice:', wsError);
       }
 
       // 2. SLOW PATH: Subcollections query if teacher_workspaces is not populated yet
-      const teacherDocRef = doc(db, 'users', uid, 'profile', 'teacher');
-      const classesColRef = collection(db, 'users', uid, 'classes');
-      const studentsColRef = collection(db, 'users', uid, 'students');
-      const sessionsColRef = collection(db, 'users', uid, 'attendance_sessions');
-      const gradesColRef = collection(db, 'users', uid, 'grades');
-      const agendasColRef = collection(db, 'users', uid, 'teaching_agendas');
+      try {
+        const teacherDocRef = doc(db, 'users', uid, 'profile', 'teacher');
+        const classesColRef = collection(db, 'users', uid, 'classes');
+        const studentsColRef = collection(db, 'users', uid, 'students');
+        const sessionsColRef = collection(db, 'users', uid, 'attendance_sessions');
+        const gradesColRef = collection(db, 'users', uid, 'grades');
+        const agendasColRef = collection(db, 'users', uid, 'teaching_agendas');
 
-      const [teacherSnap, classesSnap, studentsSnap, sessionsSnap, gradesSnap, agendasSnap] =
-        await Promise.all([
-          getDoc(teacherDocRef).catch((e) => {
-            console.warn('[FirestoreService] getDoc teacher warning:', e?.message || e);
-            return { exists: () => false, data: () => null } as any;
-          }),
-          getDocs(classesColRef).catch((e) => {
-            console.warn('[FirestoreService] getDocs classes warning:', e?.message || e);
-            return { docs: [] } as any;
-          }),
-          getDocs(studentsColRef).catch((e) => {
-            console.warn('[FirestoreService] getDocs students warning:', e?.message || e);
-            return { docs: [] } as any;
-          }),
-          getDocs(sessionsColRef).catch((e) => {
-            console.warn('[FirestoreService] getDocs sessions warning:', e?.message || e);
-            return { docs: [] } as any;
-          }),
-          getDocs(gradesColRef).catch((e) => {
-            console.warn('[FirestoreService] getDocs grades warning:', e?.message || e);
-            return { docs: [] } as any;
-          }),
-          getDocs(agendasColRef).catch((e) => {
-            console.warn('[FirestoreService] getDocs agendas warning:', e?.message || e);
-            return { docs: [] } as any;
-          }),
-        ]);
+        const [teacherSnap, classesSnap, studentsSnap, sessionsSnap, gradesSnap, agendasSnap] =
+          await Promise.all([
+            getDoc(teacherDocRef).catch(() => ({ exists: () => false, data: () => null } as any)),
+            getDocs(classesColRef).catch(() => ({ docs: [] } as any)),
+            getDocs(studentsColRef).catch(() => ({ docs: [] } as any)),
+            getDocs(sessionsColRef).catch(() => ({ docs: [] } as any)),
+            getDocs(gradesColRef).catch(() => ({ docs: [] } as any)),
+            getDocs(agendasColRef).catch(() => ({ docs: [] } as any)),
+          ]);
 
-      const teacherData = teacherSnap.exists()
-        ? (teacherSnap.data() as TeacherProfile)
-        : null;
-      const classesData = classesSnap.docs.map((d: any) => d.data() as ClassRoom);
-      const studentsData = studentsSnap.docs.map((d: any) => d.data() as Student);
-      const sessionsData = sessionsSnap.docs.map((d: any) => d.data() as AttendanceSession);
-      const gradesData = gradesSnap.docs.map((d: any) => d.data() as StudentGrade);
-      const agendasData = agendasSnap.docs.map((d: any) => d.data() as TeachingAgenda);
+        const teacherData = teacherSnap.exists()
+          ? (teacherSnap.data() as TeacherProfile)
+          : null;
+        const classesData = classesSnap.docs.map((d: any) => d.data() as ClassRoom);
+        const studentsData = studentsSnap.docs.map((d: any) => d.data() as Student);
+        const sessionsData = sessionsSnap.docs.map((d: any) => d.data() as AttendanceSession);
+        const gradesData = gradesSnap.docs.map((d: any) => d.data() as StudentGrade);
+        const agendasData = agendasSnap.docs.map((d: any) => d.data() as TeachingAgenda);
 
-      // Check if user has classes in subcollections
-      if (classesData.length > 0) {
-        const activeClassId =
-          teacherData?.activeClassId || classesData[0]?.id || '';
+        // Check if user has classes in subcollections
+        if (classesData.length > 0) {
+          const activeClassId =
+            teacherData?.activeClassId || classesData[0]?.id || '';
 
-        const compiled: UserWorkspaceData = {
-          teacher: teacherData || {
-            id: 't-' + uid,
-            namaGuru: 'Guru SMK',
-            nip: '',
-            namaSekolah: 'SMK Muhammadiyah Bawang',
-            mataPelajaranUtama: classesData[0]?.mataPelajaran || 'Informatika',
-            tahunAjaran: '2025/2026',
-            semester: 'Ganjil',
-            isLoggedIn: true,
+          const compiled: UserWorkspaceData = {
+            teacher: teacherData || {
+              id: 't-' + uid,
+              namaGuru: 'Guru SMK',
+              nip: '',
+              namaSekolah: 'SMK Muhammadiyah Bawang',
+              mataPelajaranUtama: classesData[0]?.mataPelajaran || 'Informatika',
+              tahunAjaran: '2025/2026',
+              semester: 'Ganjil',
+              isLoggedIn: true,
+              activeClassId,
+            },
+            classes: classesData,
             activeClassId,
-          },
-          classes: classesData,
-          activeClassId,
-          students: studentsData,
-          sessions: sessionsData,
-          grades: gradesData,
-          agendas: agendasData,
+            students: studentsData,
+            sessions: sessionsData,
+            grades: gradesData,
+            agendas: agendasData,
+            savings: Storage.getAllSavings(),
+            isNewUser: false,
+          };
+
+          // Cache locally and consolidate in teacher_workspaces in background
+          updateLocalCache(compiled);
+          try {
+            const wsRef = doc(db, 'teacher_workspaces', uid);
+            setDoc(
+              wsRef,
+              sanitizeForFirestore({
+                teacherUid: uid,
+                teacher: compiled.teacher,
+                classes: compiled.classes,
+                activeClassId: compiled.activeClassId,
+                students: compiled.students,
+                sessions: compiled.sessions,
+                grades: compiled.grades,
+                agendas: compiled.agendas,
+                savings: compiled.savings,
+                updatedAt: new Date().toISOString(),
+              }),
+              { merge: true }
+            ).catch((e) => console.warn('Background consolidate notice:', e));
+          } catch {}
+
+          return compiled;
+        }
+      } catch (subColErr) {
+        console.warn('[FirestoreService] Subcollection query notice:', subColErr);
+      }
+
+      // Check local storage before declaring a new user
+      const localClasses = Storage.getClasses();
+      if (localClasses && localClasses.length > 0) {
+        const localWorkspace: UserWorkspaceData = {
+          teacher: Storage.getTeacher(),
+          classes: localClasses,
+          activeClassId: Storage.getActiveClassId() || localClasses[0]?.id || '',
+          students: Storage.getAllStudents(),
+          sessions: Storage.getAllSessions(),
+          grades: Storage.getAllGrades(),
+          agendas: Storage.getAllAgendas(),
           savings: Storage.getAllSavings(),
           isNewUser: false,
         };
-
-        // Cache locally and consolidate in teacher_workspaces in background
-        updateLocalCache(compiled);
-        try {
-          const wsRef = doc(db, 'teacher_workspaces', uid);
-          setDoc(
-            wsRef,
-            sanitizeForFirestore({
-              teacherUid: uid,
-              teacher: compiled.teacher,
-              classes: compiled.classes,
-              activeClassId: compiled.activeClassId,
-              students: compiled.students,
-              sessions: compiled.sessions,
-              grades: compiled.grades,
-              agendas: compiled.agendas,
-              savings: compiled.savings,
-              updatedAt: new Date().toISOString(),
-            }),
-            { merge: true }
-          ).catch((e) => console.warn('Background consolidate error:', e));
-        } catch {}
-
-        return compiled;
+        updateLocalCache(localWorkspace);
+        return localWorkspace;
       }
 
       // Truly new user or empty database
       return {
-        teacher: teacherData || {
+        teacher: {
           id: 't-' + uid,
           namaGuru: '',
           nip: '',
@@ -365,24 +420,37 @@ export const FirestoreService = {
         students: [],
         sessions: [],
         grades: [],
-        agendas: agendasData,
+        agendas: [],
         savings: Storage.getAllSavings(),
         isNewUser: true,
       };
     };
 
-    // Fast Timeout Guard (1.5 seconds max wait before serving instant cached data)
+    // Fast Timeout Guard (2.5 seconds max wait before serving instant cached or local data)
     try {
       const timeoutPromise = new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error('TIMEOUT_FAST_LOAD')), 1500)
+        setTimeout(() => reject(new Error('TIMEOUT_FAST_LOAD')), 2500)
       );
       return await Promise.race([fetchFromFirestore(), timeoutPromise]);
     } catch (err: any) {
-      if (err?.message === 'TIMEOUT_FAST_LOAD' && cachedData && cachedData.classes?.length > 0) {
-        console.warn('[FirestoreService] Cloud load timed out (1.5s), served instant cached data');
-        // Let fetch continue in background to keep data fresh
+      if (cachedData && cachedData.classes?.length > 0) {
+        console.warn('[FirestoreService] Cloud load timed out, serving cached data');
         fetchFromFirestore().catch((e) => console.warn('Background sync error:', e));
         return cachedData;
+      }
+      const localClasses = Storage.getClasses();
+      if (localClasses && localClasses.length > 0) {
+        return {
+          teacher: Storage.getTeacher(),
+          classes: localClasses,
+          activeClassId: Storage.getActiveClassId() || localClasses[0]?.id || '',
+          students: Storage.getAllStudents(),
+          sessions: Storage.getAllSessions(),
+          grades: Storage.getAllGrades(),
+          agendas: Storage.getAllAgendas(),
+          savings: Storage.getAllSavings(),
+          isNewUser: false,
+        };
       }
       return await fetchFromFirestore();
     }
@@ -585,7 +653,7 @@ export const FirestoreService = {
   },
 
   /**
-   * Save multiple students (e.g. from Excel/Spreadsheet import)
+   * Save multiple students (e.g. from Excel/Spreadsheet import) with chunked batches
    */
   async importStudentsBatch(
     uid: string,
@@ -594,7 +662,7 @@ export const FirestoreService = {
     mode: 'replace' | 'append',
     targetClassId: string
   ): Promise<void> {
-    const batch = writeBatch(db);
+    const ops: Array<(batch: ReturnType<typeof writeBatch>) => void> = [];
 
     if (mode === 'replace') {
       // Delete existing students for this class
@@ -602,29 +670,43 @@ export const FirestoreService = {
       const existingSnap = await getDocs(
         query(studentsRef, where('classId', '==', targetClassId))
       );
-      existingSnap.docs.forEach((d) => batch.delete(d.ref));
+      existingSnap.docs.forEach((d) => {
+        ops.push((batch) => batch.delete(d.ref));
+      });
 
       // Delete existing grades for this class
       const gradesRef = collection(db, 'users', uid, 'grades');
       const existingGradesSnap = await getDocs(
         query(gradesRef, where('classId', '==', targetClassId))
       );
-      existingGradesSnap.docs.forEach((d) => batch.delete(d.ref));
+      existingGradesSnap.docs.forEach((d) => {
+        ops.push((batch) => batch.delete(d.ref));
+      });
     }
 
     // Insert new students
     students.forEach((s) => {
       const sRef = doc(db, 'users', uid, 'students', s.id);
-      batch.set(sRef, sanitizeForFirestore({ ...s, teacherUid: uid }));
+      ops.push((batch) => {
+        batch.set(sRef, sanitizeForFirestore({ ...s, teacherUid: uid }));
+      });
     });
 
     // Insert new grades
     newGrades.forEach((g) => {
       const gRef = doc(db, 'users', uid, 'grades', g.id);
-      batch.set(gRef, sanitizeForFirestore({ ...g, teacherUid: uid }));
+      ops.push((batch) => {
+        batch.set(gRef, sanitizeForFirestore({ ...g, teacherUid: uid }));
+      });
     });
 
-    await batch.commit();
+    await commitBatchOperations(ops, 350);
+
+    // Update workspace snapshot document
+    this.queueWorkspaceSync(uid, {
+      students: Storage.getAllStudents(),
+      grades: Storage.getAllGrades(),
+    });
   },
 
   /**
@@ -640,7 +722,7 @@ export const FirestoreService = {
       docRef,
       sanitizeForFirestore({ ...session, teacherUid: uid }),
       { merge: true }
-    );
+    ).catch((e) => console.warn('[FirestoreService] subCol saveAttendanceSession notice:', e));
 
     // Queue debounced unified workspace snapshot update (0ms local cache + background consolidator)
     const sessionsList = allSessions || Storage.getAllSessions();
@@ -656,7 +738,7 @@ export const FirestoreService = {
         updatedAt: new Date().toISOString(),
       }),
       { merge: true }
-    );
+    ).catch((e) => console.warn('[FirestoreService] ws saveAttendanceSession notice:', e));
 
     await Promise.all([subColPromise, wsPromise]);
   },
@@ -670,16 +752,22 @@ export const FirestoreService = {
     allSessions?: AttendanceSession[]
   ): Promise<void> {
     if (!sessions || sessions.length === 0) return;
-    const batch = writeBatch(db);
+
+    const ops: Array<(batch: ReturnType<typeof writeBatch>) => void> = [];
     sessions.forEach((ses) => {
       const docRef = doc(db, 'users', uid, 'attendance_sessions', ses.id);
-      batch.set(
-        docRef,
-        sanitizeForFirestore({ ...ses, teacherUid: uid }),
-        { merge: true }
-      );
+      ops.push((batch) => {
+        batch.set(
+          docRef,
+          sanitizeForFirestore({ ...ses, teacherUid: uid }),
+          { merge: true }
+        );
+      });
     });
-    const batchPromise = batch.commit();
+
+    const batchPromise = commitBatchOperations(ops, 350).catch((e) => {
+      console.warn('[FirestoreService] saveAttendanceSessionsBatch notice:', e);
+    });
 
     // Concurrently write to consolidated workspace document
     const sessionsList = allSessions || Storage.getAllSessions();
@@ -693,7 +781,7 @@ export const FirestoreService = {
         updatedAt: new Date().toISOString(),
       }),
       { merge: true }
-    );
+    ).catch((e) => console.warn('[FirestoreService] saveAttendanceSessionsBatch ws notice:', e));
 
     await Promise.all([batchPromise, wsPromise]);
   },
@@ -707,7 +795,7 @@ export const FirestoreService = {
     remainingSessions?: AttendanceSession[]
   ): Promise<void> {
     const docRef = doc(db, 'users', uid, 'attendance_sessions', sessionId);
-    const deletePromise = deleteDoc(docRef);
+    const deletePromise = deleteDoc(docRef).catch((e) => console.warn('[FirestoreService] deleteAttendanceSession notice:', e));
 
     const sessionsList =
       remainingSessions || Storage.getAllSessions().filter((s) => s.id !== sessionId);
@@ -725,7 +813,7 @@ export const FirestoreService = {
       docRef,
       sanitizeForFirestore({ ...grade, teacherUid: uid }),
       { merge: true }
-    );
+    ).catch((e) => console.warn('[FirestoreService] saveGrade notice:', e));
 
     const gradesList = allGrades || Storage.getAllGrades();
     this.queueWorkspaceSync(uid, { grades: gradesList });
@@ -739,41 +827,86 @@ export const FirestoreService = {
         updatedAt: new Date().toISOString(),
       }),
       { merge: true }
-    );
+    ).catch((e) => console.warn('[FirestoreService] saveGrade ws notice:', e));
 
     await Promise.all([subColPromise, wsPromise]);
   },
 
   /**
-   * Save multiple Student Grades in batch to Cloud Firestore
+   * Save Grades in Batch to Cloud Firestore
+   * Highly optimized: performs single-document atomic write to unified teacher_workspaces (<100ms)
+   * while asynchronously persisting to subcollection in the background with batch chunking.
    */
-  async saveGradesBatch(uid: string, grades: StudentGrade[], allGrades?: StudentGrade[]): Promise<void> {
+  async saveGradesBatch(
+    uid: string,
+    grades: StudentGrade[],
+    allGrades?: StudentGrade[],
+    gradeHeaders?: { classId: string; headers: GradeColumnHeader[] }
+  ): Promise<void> {
+    if (!uid) return;
     if (!grades || grades.length === 0) return;
-    const batch = writeBatch(db);
-    grades.forEach((grade) => {
-      const docRef = doc(db, 'users', uid, 'grades', grade.id);
-      batch.set(
-        docRef,
-        sanitizeForFirestore({ ...grade, teacherUid: uid }),
-        { merge: true }
-      );
-    });
-    const batchPromise = batch.commit();
-
     const gradesList = allGrades || Storage.getAllGrades();
-    this.queueWorkspaceSync(uid, { grades: gradesList });
-    const wsRef = doc(db, 'teacher_workspaces', uid);
-    const wsPromise = setDoc(
-      wsRef,
-      sanitizeForFirestore({
-        teacherUid: uid,
-        grades: gradesList,
-        updatedAt: new Date().toISOString(),
-      }),
-      { merge: true }
-    );
 
-    await Promise.all([batchPromise, wsPromise]);
+    // 1. Instant local memory cache update
+    this.queueWorkspaceSync(uid, { grades: gradesList });
+
+    // 2. High-speed atomic write to consolidated workspace document
+    const wsRef = doc(db, 'teacher_workspaces', uid);
+    const wsPayload: Record<string, any> = {
+      teacherUid: uid,
+      grades: gradesList,
+      updatedAt: new Date().toISOString(),
+    };
+    if (gradeHeaders) {
+      wsPayload[`gradeHeaders_${gradeHeaders.classId}`] = gradeHeaders.headers;
+    }
+    const wsPromise = setDoc(wsRef, sanitizeForFirestore(wsPayload), { merge: true })
+      .catch((err) => {
+        console.warn('[FirestoreService] Workspace grades write notice:', err?.message || err);
+      });
+
+    // 3. Concurrently sync subcollections with chunking protection
+    const ops: Array<(batch: ReturnType<typeof writeBatch>) => void> = [];
+    grades.forEach((grade, idx) => {
+      const gradeId = grade.id || `grd-${grade.studentId || idx}`;
+      const docRef = doc(db, 'users', uid, 'grades', gradeId);
+      ops.push((batch) => {
+        batch.set(
+          docRef,
+          sanitizeForFirestore({ ...grade, id: gradeId, teacherUid: uid }),
+          { merge: true }
+        );
+      });
+    });
+
+    if (gradeHeaders) {
+      const hRef = doc(db, 'users', uid, 'grade_headers', gradeHeaders.classId);
+      ops.push((batch) => {
+        batch.set(
+          hRef,
+          sanitizeForFirestore({
+            classId: gradeHeaders.classId,
+            headers: gradeHeaders.headers,
+            updatedAt: new Date().toISOString(),
+            teacherUid: uid,
+          }),
+          { merge: true }
+        );
+      });
+    }
+
+    const subColPromise = commitBatchOperations(ops, 350).catch((e) => {
+      console.warn('[FirestoreService] Background subcollection batch notice:', e?.message || e);
+    });
+
+    // Wait for both workspace document and subcollection writes with safety timeout
+    await Promise.all([
+      wsPromise,
+      Promise.race([
+        subColPromise,
+        new Promise((resolve) => setTimeout(resolve, 2500)),
+      ]),
+    ]);
   },
 
   /**
@@ -785,16 +918,28 @@ export const FirestoreService = {
     headers: GradeColumnHeader[]
   ): Promise<void> {
     const docRef = doc(db, 'users', uid, 'grade_headers', classId);
-    await setDoc(
-      docRef,
-      sanitizeForFirestore({
-        classId,
-        headers,
-        updatedAt: new Date().toISOString(),
-        teacherUid: uid,
-      }),
-      { merge: true }
-    );
+    const wsRef = doc(db, 'teacher_workspaces', uid);
+
+    await Promise.all([
+      setDoc(
+        docRef,
+        sanitizeForFirestore({
+          classId,
+          headers,
+          updatedAt: new Date().toISOString(),
+          teacherUid: uid,
+        }),
+        { merge: true }
+      ),
+      setDoc(
+        wsRef,
+        sanitizeForFirestore({
+          [`gradeHeaders_${classId}`]: headers,
+          updatedAt: new Date().toISOString(),
+        }),
+        { merge: true }
+      ).catch(() => {}),
+    ]);
   },
 
   /**

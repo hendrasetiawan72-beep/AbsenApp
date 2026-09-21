@@ -21,6 +21,8 @@ import {
 import { ClassRoom, Student, TeacherProfile, StudentGrade } from '../types';
 import { FirestoreService, PublicNilaiData } from '../services/firestoreService';
 import { calculateStudentGrade } from '../utils/gradeCalculations';
+import { Storage } from '../utils/storage';
+import { getDefaultGradeHeaders } from '../utils/gradeHeaders';
 import { QRCodeModal } from './QRCodeModal';
 
 interface SharePublicNilaiModalProps {
@@ -217,6 +219,38 @@ export const SharePublicNilaiModal: React.FC<SharePublicNilaiModalProps> = ({
         gender: st.gender,
       }));
 
+      // Retrieve grade column headers for custom formative descriptions and dates
+      const columnHeaders =
+        Storage.getGradeHeaders(currentClass.id) ||
+        getDefaultGradeHeaders(
+          (teacher.semester as 'Ganjil' | 'Genap') || 'Ganjil',
+          teacher.tahunAjaran || '2025/2026'
+        );
+
+      const normalizedGrades = grades
+        .filter((g) => g.classId === currentClass.id)
+        .map((g) => {
+          const m = g.monthlyGrades || {};
+          return {
+            ...g,
+            formatif1: g.formatif1 ?? (m['m0_c0'] !== undefined ? Number(m['m0_c0']) : null),
+            formatif2: g.formatif2 ?? (m['m0_c1'] !== undefined ? Number(m['m0_c1']) : null),
+            formatif3: g.formatif3 ?? (m['m0_c2'] !== undefined ? Number(m['m0_c2']) : null),
+            formatif4: g.formatif4 ?? (m['m0_c3'] !== undefined ? Number(m['m0_c3']) : null),
+            formatif5: g.formatif5 ?? (m['m1_c0'] !== undefined ? Number(m['m1_c0']) : null),
+            formatif6: g.formatif6 ?? (m['m1_c1'] !== undefined ? Number(m['m1_c1']) : null),
+            formatif7: g.formatif7 ?? (m['m1_c2'] !== undefined ? Number(m['m1_c2']) : null),
+            formatif8: g.formatif8 ?? (m['m1_c3'] !== undefined ? Number(m['m1_c3']) : null),
+            sumatifTengah:
+              g.sumatifTengah ??
+              (m['sumatif_tengah'] !== undefined ? Number(m['sumatif_tengah']) : null),
+            sumatifAkhir:
+              g.sumatifAkhir ??
+              (m['sumatif_akhir'] !== undefined ? Number(m['sumatif_akhir']) : null),
+            monthlyGrades: m,
+          };
+        });
+
       const payload: PublicNilaiData = {
         shareId,
         classId: currentClass.id,
@@ -231,7 +265,8 @@ export const SharePublicNilaiModal: React.FC<SharePublicNilaiModalProps> = ({
         teacherUid: currentUid,
         updatedAt: new Date().toISOString(),
         students: classStudents,
-        grades: grades.filter((g) => g.classId === currentClass.id),
+        grades: normalizedGrades,
+        columnHeaders,
         isPublicEnabled,
         pinRequired,
         accessPin: pinRequired ? accessPin : undefined,

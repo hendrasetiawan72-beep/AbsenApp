@@ -547,3 +547,277 @@ export function exportGradesToExcel(
   const filename = `Rekap_Nilai_${className.replace(/[^a-zA-Z0-9]/g, '_')}.xlsx`;
   XLSX.writeFile(workbook, filename);
 }
+
+/**
+ * Download blank or pre-filled Excel template for importing grades
+ */
+export function downloadGradesTemplate(
+  students: Student[] = [],
+  className: string = 'Kelas',
+  headers?: GradeColumnHeader[]
+): void {
+  const templateRows: Record<string, unknown>[] = [];
+
+  const studentList = students.length > 0 ? students : [
+    { no: 1, nisn: '0071234567', nama: 'Contoh Siswa 1', gender: 'L' as Gender, id: 'ex1', classId: 'c1' },
+    { no: 2, nisn: '0071234568', nama: 'Contoh Siswa 2', gender: 'P' as Gender, id: 'ex2', classId: 'c1' },
+  ];
+
+  studentList.forEach((s) => {
+    const row: Record<string, unknown> = {
+      'No': s.no,
+      'NISN': s.nisn || '',
+      'Nama Siswa': s.nama,
+    };
+
+    if (headers && headers.length > 0) {
+      headers.forEach((h) => {
+        const colKey = `[${h.monthName}] ${h.colLabel} (${h.keterangan || 'Formatif'})`;
+        row[colKey] = '';
+      });
+    } else {
+      for (let i = 1; i <= 8; i++) {
+        row[`Formatif ${i}`] = '';
+      }
+    }
+
+    row['Sumatif Tengah (STS)'] = '';
+    row['Sumatif Akhir (SAS)'] = '';
+    row['Catatan Evaluasi'] = '';
+
+    templateRows.push(row);
+  });
+
+  const ws = XLSX.utils.json_to_sheet(templateRows);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Template Nilai');
+
+  const filename = `Template_Nilai_${className.replace(/[^a-zA-Z0-9]/g, '_')}.xlsx`;
+  XLSX.writeFile(wb, filename);
+}
+
+/**
+ * Parses an Excel or CSV file containing student grades (Formatif & Sumatif)
+ */
+export async function parseGradesExcelFile(
+  file: File,
+  students: Student[],
+  classId: string,
+  existingGrades: StudentGrade[] = [],
+  headers?: GradeColumnHeader[]
+): Promise<{ updatedGrades: StudentGrade[]; matchedCount: number; unmatchedNames: string[] }> {
+  const buffer = await file.arrayBuffer();
+  const workbook = XLSX.read(buffer, { type: 'array' });
+  const firstSheetName = workbook.SheetNames[0];
+  const worksheet = workbook.Sheets[firstSheetName];
+  const rawRows: Record<string, any>[] = XLSX.utils.sheet_to_json(worksheet);
+
+  return processGradeRawRows(rawRows, students, classId, existingGrades, headers);
+}
+
+/**
+ * Parses raw copied spreadsheet text containing student grades
+ */
+export function parseGradesSpreadsheetText(
+  rawText: string,
+  students: Student[],
+  classId: string,
+  existingGrades: StudentGrade[] = [],
+  headers?: GradeColumnHeader[]
+): { updatedGrades: StudentGrade[]; matchedCount: number; unmatchedNames: string[] } {
+  const lines = rawText
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0);
+
+  if (lines.length < 2) {
+    return { updatedGrades: existingGrades, matchedCount: 0, unmatchedNames: [] };
+  }
+
+  // Parse header line
+  const delimiter = lines[0].includes('\t') ? '\t' : lines[0].includes(';') ? ';' : ',';
+  const headerCols = lines[0].split(delimiter).map((c) => c.trim().replace(/^["']|["']$/g, ''));
+
+  const rawRows: Record<string, any>[] = [];
+  for (let i = 1; i < lines.length; i++) {
+    const cols = lines[i].split(delimiter).map((c) => c.trim().replace(/^["']|["']$/g, ''));
+    const rowObj: Record<string, any> = {};
+    headerCols.forEach((h, idx) => {
+      rowObj[h] = cols[idx] !== undefined ? cols[idx] : '';
+    });
+    rawRows.push(rowObj);
+  }
+
+  return processGradeRawRows(rawRows, students, classId, existingGrades, headers);
+}
+
+/**
+ * Internal processor to match raw spreadsheet rows with students and build StudentGrade objects
+ */
+function processGradeRawRows(
+  rawRows: Record<string, any>[],
+  students: Student[],
+  classId: string,
+  existingGrades: StudentGrade[] = [],
+  headers?: GradeColumnHeader[]
+): { updatedGrades: StudentGrade[]; matchedCount: number; unmatchedNames: string[] } {
+  const gradesMap = new Map<string, StudentGrade>();
+  existingGrades.forEach((g) => gradesMap.set(g.studentId, { ...g }));
+
+  let matchedCount = 0;
+  const unmatchedNames: string[] = [];
+
+  rawRows.forEach((row) => {
+    // 1. Identify student by NISN, Name, or No
+    let rowNisn = '';
+    let rowNama = '';
+    let rowNo = 0;
+
+    Object.entries(row).forEach(([key, val]) => {
+      const k = key.toLowerCase().trim();
+      const v = String(val ?? '').trim();
+      if (k === 'nisn' || k.includes('nisn')) {
+        rowNisn = v;
+      } else if (k === 'nama' || k.includes('nama siswa') || k.includes('nama_siswa')) {
+        rowNama = v;
+      } else if (k === 'no' || k === 'no.' || k === 'nomor') {
+        const parsed = parseInt(v);
+        if (!isNaN(parsed)) rowNo = parsed;
+      }
+    });
+
+    // Find student in current class
+    let targetStudent: Student | undefined;
+    if (rowNisn) {
+      targetStudent = students.find((s) => s.nisn && s.nisn.trim() === rowNisn);
+    }
+    if (!targetStudent && rowNama) {
+      const cleanNama = rowNama.toLowerCase().replace(/[^a-z0-9]/g, '');
+      targetStudent = students.find((s) => s.nama.toLowerCase().replace(/[^a-z0-9]/g, '') === cleanNama);
+      if (!targetStudent) {
+        // Partial match
+        targetStudent = students.find((s) => {
+          const stClean = s.nama.toLowerCase().replace(/[^a-z0-9]/g, '');
+          return stClean.includes(cleanNama) || cleanNama.includes(stClean);
+        });
+      }
+    }
+    if (!targetStudent && rowNo > 0) {
+      targetStudent = students.find((s) => s.no === rowNo);
+    }
+
+    if (!targetStudent) {
+      if (rowNama) unmatchedNames.push(rowNama);
+      return;
+    }
+
+    matchedCount++;
+    const studentId = targetStudent.id;
+    const existing = gradesMap.get(studentId) || {
+      id: `grd-${studentId}`,
+      studentId,
+      classId,
+      monthlyGrades: {},
+      catatan: '',
+    };
+
+    const nextMonthly: Record<string, number | null> = { ...(existing.monthlyGrades || {}) };
+    let stsVal: number | null = existing.sumatifTengah ?? null;
+    let sasVal: number | null = existing.sumatifAkhir ?? null;
+    let catatanVal: string = existing.catatan || '';
+
+    // 2. Extract grades from columns
+    let praktikVal: number | null = existing.praktik ?? null;
+
+    Object.entries(row).forEach(([key, val]) => {
+      const k = key.toLowerCase().trim();
+      const numVal = parseGradeNumber(val);
+      if (numVal === null && !k.includes('catatan') && !k.includes('evaluasi') && !k.includes('keterangan')) return;
+
+      // Check for STS / SAS
+      if (k.includes('sts') || k.includes('tengah') || k.includes('uts')) {
+        if (numVal !== null) {
+          stsVal = numVal;
+          nextMonthly['sumatif_tengah'] = numVal;
+        }
+      } else if (k.includes('sas') || k.includes('akhir') || k.includes('uas')) {
+        if (numVal !== null) {
+          sasVal = numVal;
+          nextMonthly['sumatif_akhir'] = numVal;
+        }
+      } else if (k.includes('praktik') || k.includes('praktek')) {
+        if (numVal !== null) {
+          praktikVal = numVal;
+          nextMonthly['praktik'] = numVal;
+        }
+      } else if (k.includes('catatan') || k.includes('evaluasi') || k.includes('keterangan')) {
+        if (typeof val === 'string' && val.trim()) {
+          catatanVal = val.trim();
+        }
+      } else {
+        // Check for formatif columns
+        // Match Formatif 1..24, F1..24, TP 1..24, UH 1..24, Tugas 1..24
+        const formatifMatch = k.match(/(?:formatif|tugas|tp|uh|f)\s*([1-9]|1\d|2[0-4])\b/i);
+        if (formatifMatch && numVal !== null) {
+          const num = parseInt(formatifMatch[1], 10);
+          if (num >= 1 && num <= 24) {
+            const mIdx = Math.floor((num - 1) / 4);
+            const cIdx = (num - 1) % 4;
+            nextMonthly[`m${mIdx}_c${cIdx}`] = numVal;
+          }
+        }
+
+        // Pattern 2: [Bulan] Col format matching custom headers
+        if (headers && headers.length > 0 && numVal !== null) {
+          const matchedHeader = headers.find((h) => {
+            const hLabel = (h.colLabel || '').toLowerCase();
+            const hMonth = (h.monthName || '').toLowerCase();
+            const hKet = (h.keterangan || '').toLowerCase();
+            return (
+              (hLabel && k.includes(hLabel) && hMonth && k.includes(hMonth)) ||
+              (hKet && hKet.length > 3 && k.includes(hKet))
+            );
+          });
+          if (matchedHeader) {
+            nextMonthly[matchedHeader.key] = numVal;
+          }
+        }
+      }
+    });
+
+    // Populate backward compatibility fields
+    const updatedGrade: StudentGrade = {
+      ...existing,
+      formatif1: nextMonthly['m0_c0'] ?? existing.formatif1 ?? null,
+      formatif2: nextMonthly['m0_c1'] ?? existing.formatif2 ?? null,
+      formatif3: nextMonthly['m0_c2'] ?? existing.formatif3 ?? null,
+      formatif4: nextMonthly['m0_c3'] ?? existing.formatif4 ?? null,
+      formatif5: nextMonthly['m1_c0'] ?? existing.formatif5 ?? null,
+      formatif6: nextMonthly['m1_c1'] ?? existing.formatif6 ?? null,
+      formatif7: nextMonthly['m1_c2'] ?? existing.formatif7 ?? null,
+      formatif8: nextMonthly['m1_c3'] ?? existing.formatif8 ?? null,
+      formatif9: nextMonthly['m2_c0'] ?? existing.formatif9 ?? null,
+      formatif10: nextMonthly['m2_c1'] ?? existing.formatif10 ?? null,
+      praktik: praktikVal,
+      sumatifTengah: stsVal,
+      sumatifAkhir: sasVal,
+      monthlyGrades: nextMonthly,
+      catatan: catatanVal,
+    };
+
+    gradesMap.set(studentId, updatedGrade);
+  });
+
+  return {
+    updatedGrades: Array.from(gradesMap.values()),
+    matchedCount,
+    unmatchedNames,
+  };
+}
+
+function parseGradeNumber(val: any): number | null {
+  if (val === null || val === undefined || val === '') return null;
+  const num = parseFloat(String(val).replace(',', '.').trim());
+  if (isNaN(num)) return null;
+  return Math.max(0, Math.min(100, Math.round(num)));
+}

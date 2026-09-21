@@ -5,30 +5,34 @@ import {
   getFirestore,
   doc,
   getDocFromServer,
-  persistentLocalCache,
-  persistentMultipleTabManager,
+  memoryLocalCache,
 } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
 
 export const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 
-// Use initializeFirestore with experimentalForceLongPolling to avoid WebChannel stream timeouts
-// in reverse proxies, cloud sandbox iframes, and restricted network environments.
+// Safe singleton Firestore initialization using memoryLocalCache to eliminate
+// IndexedDB multi-tab lock contention and browser sandbox permission errors
+const dbId = (firebaseConfig as any).firestoreDatabaseId;
+
 let firestoreDb;
 try {
-  const dbId = (firebaseConfig as any).firestoreDatabaseId;
-  const settings = {
-    experimentalForceLongPolling: true,
-    localCache: persistentLocalCache({
-      tabManager: persistentMultipleTabManager(),
-    }),
-  };
-  firestoreDb = dbId
-    ? initializeFirestore(app, settings, dbId)
-    : initializeFirestore(app, settings);
-} catch (e) {
-  firestoreDb = getFirestore(app, (firebaseConfig as any).firestoreDatabaseId);
+  // If already initialized in this runtime, reuse instance
+  firestoreDb = getFirestore(app, dbId);
+} catch {
+  try {
+    const settings = {
+      experimentalForceLongPolling: true,
+      localCache: memoryLocalCache(),
+    };
+    firestoreDb = dbId
+      ? initializeFirestore(app, settings, dbId)
+      : initializeFirestore(app, settings);
+  } catch (e) {
+    console.warn('[Firebase] Fallback to standard getFirestore:', e);
+    firestoreDb = getFirestore(app, dbId);
+  }
 }
 
 export const db = firestoreDb;
@@ -38,7 +42,7 @@ export const googleAuthProvider = new GoogleAuthProvider();
 export async function testFirestoreConnection(): Promise<boolean> {
   try {
     const timeoutPromise = new Promise<boolean>((_, reject) =>
-      setTimeout(() => reject(new Error('Connection timeout')), 5000)
+      setTimeout(() => reject(new Error('Connection timeout')), 3500)
     );
     const testPromise = (async () => {
       await getDocFromServer(doc(db, 'test', 'connection'));
@@ -53,4 +57,5 @@ export async function testFirestoreConnection(): Promise<boolean> {
     return false;
   }
 }
+
 

@@ -85,6 +85,9 @@ export const PublicNilaiView: React.FC<PublicNilaiViewProps> = ({
   const [enteredPin, setEnteredPin] = useState<string>('');
   const [pinError, setPinError] = useState<string | null>(null);
 
+  // Filter for formative assessment months
+  const [selectedMonthFilter, setSelectedMonthFilter] = useState<number | 'all'>('all');
+
   // Real-time Firestore subscription
   useEffect(() => {
     setIsLoading(true);
@@ -175,7 +178,7 @@ export const PublicNilaiView: React.FC<PublicNilaiViewProps> = ({
 
     data.students.forEach((st) => {
       const g = data.grades?.find((gr) => gr.studentId === st.id);
-      const calc = calculateStudentGrade(g, kkm);
+      const calc = calculateStudentGrade(g, kkm, data.columnHeaders);
       map.set(st.id, { student: st, grade: g, calc });
     });
 
@@ -756,65 +759,149 @@ export const PublicNilaiView: React.FC<PublicNilaiViewProps> = ({
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
                   {/* Card 1: Formatif (50%) */}
                   <div className="bg-slate-50 rounded-2xl p-5 border border-slate-200 space-y-3 md:col-span-2">
-                    <div className="flex items-center justify-between">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
                       <div className="flex items-center gap-2">
                         <div className="w-8 h-8 rounded-xl bg-indigo-100 text-indigo-700 flex items-center justify-center font-bold text-xs">
                           50%
                         </div>
                         <div>
                           <h4 className="text-sm font-black text-slate-900">Asesmen Formatif (Tugas/Praktik/Kuis)</h4>
-                          <p className="text-[11px] text-slate-500">Bobot 50% dalam penentuan nilai akhir</p>
+                          <p className="text-[11px] text-slate-500">
+                            {activeStudentData.calc.totalAssessmentsTaken > 0
+                              ? `${activeStudentData.calc.totalAssessmentsTaken} nilai formatif tercatat • Bobot 50% nilai akhir`
+                              : 'Bobot 50% dalam penentuan nilai akhir'}
+                          </p>
                         </div>
                       </div>
 
                       <div className="text-right">
-                        <span className="text-xs font-bold text-slate-500 block">Rata-rata</span>
+                        <span className="text-xs font-bold text-slate-500 block">Rata-rata Formatif</span>
                         <span className="text-xl font-black text-indigo-700">
                           {activeStudentData.calc.rataFormatif}
                         </span>
                       </div>
                     </div>
 
-                    {/* Grid of 8 Formatif Columns */}
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 pt-2">
-                      {[
-                        { label: 'Formatif 1', val: activeStudentData.calc.formatif1 },
-                        { label: 'Formatif 2', val: activeStudentData.calc.formatif2 },
-                        { label: 'Formatif 3', val: activeStudentData.calc.formatif3 },
-                        { label: 'Formatif 4', val: activeStudentData.calc.formatif4 },
-                        { label: 'Formatif 5', val: activeStudentData.calc.formatif5 },
-                        { label: 'Formatif 6', val: activeStudentData.calc.formatif6 },
-                        { label: 'Formatif 7', val: activeStudentData.calc.formatif7 },
-                        { label: 'Formatif 8', val: activeStudentData.calc.formatif8 },
-                      ].map((item, idx) => (
-                        <div
-                          key={idx}
-                          className="bg-white rounded-xl p-3 border border-slate-200 text-center shadow-2xs"
+                    {/* Month selector if monthly summaries exist */}
+                    {activeStudentData.calc.monthlySummaries && activeStudentData.calc.monthlySummaries.length > 0 && (
+                      <div className="flex items-center gap-1.5 overflow-x-auto pb-1 pt-1 text-xs">
+                        <button
+                          type="button"
+                          onClick={() => setSelectedMonthFilter('all')}
+                          className={`px-3 py-1 rounded-lg font-bold transition-all whitespace-nowrap cursor-pointer ${
+                            selectedMonthFilter === 'all'
+                              ? 'bg-indigo-600 text-white shadow-2xs'
+                              : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
+                          }`}
                         >
-                          <span className="text-[10px] font-bold text-slate-400 block uppercase tracking-wider">
-                            {item.label}
-                          </span>
-                          <span
-                            className={`text-lg font-black block mt-0.5 ${
-                              item.val === null || item.val === undefined
-                                ? 'text-slate-300'
-                                : item.val >= kkm
-                                ? 'text-emerald-700'
-                                : 'text-amber-700'
-                            }`}
-                          >
-                            {item.val !== null && item.val !== undefined ? item.val : '-'}
-                          </span>
-                          <div className="w-full bg-slate-100 rounded-full h-1 mt-1 overflow-hidden">
-                            <div
-                              className={`h-full rounded-full ${
-                                item.val && item.val >= kkm ? 'bg-emerald-500' : 'bg-amber-500'
+                          Semua Formatif
+                        </button>
+                        {activeStudentData.calc.monthlySummaries.map((m) => {
+                          const hasScores = m.scores.some((s) => s !== null && !isNaN(Number(s)));
+                          return (
+                            <button
+                              key={m.monthIndex}
+                              type="button"
+                              onClick={() => setSelectedMonthFilter(m.monthIndex)}
+                              className={`px-2.5 py-1 rounded-lg font-bold transition-all whitespace-nowrap cursor-pointer flex items-center gap-1.5 ${
+                                selectedMonthFilter === m.monthIndex
+                                  ? 'bg-indigo-600 text-white shadow-2xs'
+                                  : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
                               }`}
-                              style={{ width: `${Math.min(100, (Number(item.val) || 0))}%` }}
-                            />
+                            >
+                              <span>{m.monthName}</span>
+                              {hasScores && (
+                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block" />
+                              )}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    {/* Grid of Formatif Columns */}
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 pt-1">
+                      {(() => {
+                        const items = activeStudentData.calc.allFormatifItems || [];
+                        let displayedItems: typeof items = [];
+
+                        if (selectedMonthFilter !== 'all') {
+                          displayedItems = items.filter((it) => it.monthIndex === selectedMonthFilter);
+                        } else {
+                          // Show items from first two months (standard 8) PLUS any items in other months that have values
+                          const coreItems = items.filter((it) => it.monthIndex < 2);
+                          const otherFilledItems = items.filter(
+                            (it) => it.monthIndex >= 2 && it.val !== null && !isNaN(Number(it.val))
+                          );
+                          displayedItems = [...coreItems, ...otherFilledItems];
+                        }
+
+                        if (displayedItems.length === 0) {
+                          displayedItems = [
+                            { key: 'f1', label: 'Formatif 1', monthIndex: 0, monthName: 'Bulan 1', val: activeStudentData.calc.formatif1 },
+                            { key: 'f2', label: 'Formatif 2', monthIndex: 0, monthName: 'Bulan 1', val: activeStudentData.calc.formatif2 },
+                            { key: 'f3', label: 'Formatif 3', monthIndex: 0, monthName: 'Bulan 1', val: activeStudentData.calc.formatif3 },
+                            { key: 'f4', label: 'Formatif 4', monthIndex: 0, monthName: 'Bulan 1', val: activeStudentData.calc.formatif4 },
+                            { key: 'f5', label: 'Formatif 5', monthIndex: 1, monthName: 'Bulan 2', val: activeStudentData.calc.formatif5 },
+                            { key: 'f6', label: 'Formatif 6', monthIndex: 1, monthName: 'Bulan 2', val: activeStudentData.calc.formatif6 },
+                            { key: 'f7', label: 'Formatif 7', monthIndex: 1, monthName: 'Bulan 2', val: activeStudentData.calc.formatif7 },
+                            { key: 'f8', label: 'Formatif 8', monthIndex: 1, monthName: 'Bulan 2', val: activeStudentData.calc.formatif8 },
+                          ];
+                        }
+
+                        return displayedItems.map((item, idx) => (
+                          <div
+                            key={item.key || idx}
+                            className="bg-white rounded-xl p-3 border border-slate-200 text-center shadow-2xs flex flex-col justify-between"
+                          >
+                            <div>
+                              <div className="flex items-center justify-between gap-1 mb-0.5">
+                                <span className="text-[10px] font-extrabold text-slate-500 uppercase tracking-wider truncate">
+                                  {item.label}
+                                </span>
+                                {item.monthName && (
+                                  <span className="text-[9px] font-semibold text-slate-400">
+                                    {item.monthName.slice(0, 3)}
+                                  </span>
+                                )}
+                              </div>
+                              {item.keterangan && (
+                                <p className="text-[10px] text-slate-500 truncate" title={item.keterangan}>
+                                  {item.keterangan}
+                                </p>
+                              )}
+                            </div>
+
+                            <div className="py-1">
+                              <span
+                                className={`text-xl font-black block ${
+                                  item.val === null || item.val === undefined
+                                    ? 'text-slate-300'
+                                    : item.val >= kkm
+                                    ? 'text-emerald-700'
+                                    : 'text-amber-700'
+                                }`}
+                              >
+                                {item.val !== null && item.val !== undefined ? item.val : '-'}
+                              </span>
+                              {item.tanggal && (
+                                <span className="text-[9px] text-slate-400 font-mono block">
+                                  {item.tanggal}
+                                </span>
+                              )}
+                            </div>
+
+                            <div className="w-full bg-slate-100 rounded-full h-1 mt-1 overflow-hidden">
+                              <div
+                                className={`h-full rounded-full ${
+                                  item.val && item.val >= kkm ? 'bg-emerald-500' : 'bg-amber-500'
+                                }`}
+                                style={{ width: `${Math.min(100, Number(item.val) || 0)}%` }}
+                              />
+                            </div>
                           </div>
-                        </div>
-                      ))}
+                        ));
+                      })()}
                     </div>
                   </div>
 

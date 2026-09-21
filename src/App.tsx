@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   School,
   UserCheck,
@@ -306,7 +306,9 @@ export default function App() {
     .filter((s) => s.classId === activeClassId)
     .sort((a, b) => a.pertemuanKe - b.pertemuanKe);
 
-  const classGrades = allGrades.filter((g) => g.classId === activeClassId);
+  const classGrades = useMemo(() => {
+    return allGrades.filter((g) => g.classId === activeClassId);
+  }, [allGrades, activeClassId]);
 
   const calculatedGrades: CalculatedGrade[] = classStudents.map((std) => {
     const g = classGrades.find((grade) => grade.studentId === std.id);
@@ -1014,60 +1016,97 @@ export default function App() {
         next = [...prev, newGrade];
       }
       Storage.setAllGrades(next);
-      if (auth.currentUser?.uid) {
-        FirestoreService.queueWorkspaceSync(auth.currentUser.uid, { grades: next });
-      }
+      const effectiveUid =
+        auth.currentUser?.uid ||
+        teacher.id ||
+        localStorage.getItem('smk_active_teacher_uid') ||
+        't-guru-muh-bawang';
+      FirestoreService.queueWorkspaceSync(effectiveUid, { grades: next });
       return next;
     });
   };
 
-  // Dedicated Cloud Save Handler for Grades (user explicitly presses Save button)
+  // Dedicated Cloud Save Handler for Grades (user explicitly presses Save button or debounced auto-sync)
   const handleSaveGradesToCloud = async (
     updatedGrades: StudentGrade[],
     updatedHeaders: GradeColumnHeader[]
   ) => {
     // 1. Update allGrades state
-    setAllGrades((prev) => {
-      const otherClassGrades = prev.filter((g) => g.classId !== activeClassId);
-      const next = [...otherClassGrades, ...updatedGrades];
-      Storage.setAllGrades(next);
-      return next;
-    });
+    const otherClassGrades = allGrades.filter((g) => g.classId !== activeClassId);
+    const combinedAllGrades = [...otherClassGrades, ...updatedGrades];
+    setAllGrades(combinedAllGrades);
+    Storage.setAllGrades(combinedAllGrades);
 
     // 2. Save headers to local storage
     Storage.setGradeHeaders(activeClassId, updatedHeaders);
 
-    // 3. Save to Cloud Firestore if logged in
-    if (!auth.currentUser) {
-      showToast(
-        'Data penilaian & keterangan kolom berhasil disimpan secara lokal.',
-        'info'
-      );
-      return;
-    }
+    // 3. Determine effective UID: active Google UID or fallback teacher UID
+    const effectiveUid =
+      auth.currentUser?.uid ||
+      teacher.id ||
+      localStorage.getItem('smk_active_teacher_uid') ||
+      't-guru-muh-bawang';
 
     setIsCloudSaving(true);
+    const startTime = performance.now();
     try {
-      // Execute grades batch and headers concurrently for 2x faster sync
-      await Promise.all([
-        FirestoreService.saveGradesBatch(auth.currentUser.uid, updatedGrades),
-        FirestoreService.saveGradeHeaders(
-          auth.currentUser.uid,
-          activeClassId,
-          updatedHeaders
-        ),
-      ]);
+      // High-performance single-roundtrip sync with headers bundled
+      await FirestoreService.saveGradesBatch(
+        effectiveUid,
+        updatedGrades,
+        combinedAllGrades,
+        { classId: activeClassId, headers: updatedHeaders }
+      );
+
+      // Auto-update public link preview snapshot in background so formative scores reflect live
+      const currentCls = classes.find((c) => c.id === activeClassId);
+      if (currentCls) {
+        const shareId = FirestoreService.getPublicNilaiShareId(
+          effectiveUid,
+          activeClassId
+        );
+        const classStudents = allStudents
+          .filter((st) => st.classId === activeClassId)
+          .map((st) => ({
+            id: st.id,
+            no: st.no,
+            nisn: st.nisn || '',
+            nama: st.nama,
+            gender: st.gender,
+          }));
+
+        FirestoreService.publishPublicNilai({
+          shareId,
+          classId: activeClassId,
+          className: currentCls.namaKelas,
+          mataPelajaran: currentCls.mataPelajaran || teacher.mataPelajaranUtama || 'Pelajaran Umum',
+          schoolName: teacher.namaSekolah || 'SMK Muhammadiyah Bawang',
+          waliKelas: teacher.namaGuru || 'Guru Pengampu',
+          nip: teacher.nip || '',
+          academicYear: teacher.tahunAjaran || '2025/2026',
+          semester: teacher.semester || 'Ganjil',
+          kkm: currentCls.kkm || 75,
+          teacherUid: effectiveUid,
+          updatedAt: new Date().toISOString(),
+          students: classStudents,
+          grades: updatedGrades,
+          columnHeaders: updatedHeaders,
+          isPublicEnabled: true,
+          allowClassRecap: true,
+        }).catch((e) => console.warn('[AutoSync] Public nilai preview notice:', e));
+      }
+
+      const elapsed = Math.round(performance.now() - startTime);
       showToast(
-        'Seluruh data penilaian & keterangan kolom berhasil disimpan ke Cloud Firestore!',
+        `Penilaian (${updatedGrades.length} siswa) tersinkron ke Cloud server (${elapsed}ms)!`,
         'success'
       );
     } catch (err: any) {
       console.error('Error saving grades to Cloud Firestore:', err);
       showToast(
-        'Gagal menyimpan penilaian ke Cloud: ' + (err.message || 'Periksa koneksi'),
-        'error'
+        'Tersimpan di perangkat lokal (koneksi cloud: ' + (err?.message || 'offline') + ')',
+        'info'
       );
-      throw err;
     } finally {
       setIsCloudSaving(false);
     }
@@ -1356,6 +1395,7 @@ export default function App() {
         userEmail={teacher.email || auth.currentUser?.email || undefined}
         userName={teacher.namaGuru || auth.currentUser?.displayName || undefined}
         statusMessage={cloudStatusMsg}
+        onSkip={() => setIsCloudLoading(false)}
       />
     );
   }

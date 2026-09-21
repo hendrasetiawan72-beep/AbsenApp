@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   FileSpreadsheet,
   Search,
@@ -23,6 +23,7 @@ import {
   Info,
   Globe,
   Share2,
+  UploadCloud,
 } from 'lucide-react';
 import { Student, StudentGrade, Gender, GradeColumnHeader, ClassRoom, TeacherProfile } from '../types';
 import { exportGradesToExcel } from '../utils/excel';
@@ -33,6 +34,7 @@ import {
 } from '../utils/gradeHeaders';
 import { Storage } from '../utils/storage';
 import { SharePublicNilaiModal } from './SharePublicNilaiModal';
+import { ImportGradesModal } from './ImportGradesModal';
 
 interface GradesViewProps {
   students: Student[];
@@ -82,6 +84,7 @@ export const GradesView: React.FC<GradesViewProps> = ({
   onShowToast,
 }) => {
   const [showPublicShareModal, setShowPublicShareModal] = useState(false);
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterStatus, setFilterStatus] = useState<'all' | 'tuntas' | 'belum'>('all');
   const [filterGender, setFilterGender] = useState<'all' | Gender>('all');
@@ -114,17 +117,49 @@ export const GradesView: React.FC<GradesViewProps> = ({
   const [modalTab, setModalTab] = useState<'formatif' | 'sumatif'>('formatif');
 
   const months = useMemo(() => getSemesterMonths(safeSemester), [safeSemester]);
+  const prevClassIdRef = useRef(classId);
 
-  // Sync with prop changes
+  // Sync with prop changes: preserve local inputs if user has unsaved changes unless switching class
   useEffect(() => {
     const loadedHeaders =
       initialHeaders && initialHeaders.length > 0
         ? initialHeaders
         : Storage.getGradeHeaders(classId, safeSemester, academicYear);
     setColumnHeaders(loadedHeaders);
-    setLocalGrades(grades);
-    setHasUnsavedChanges(false);
+
+    if (prevClassIdRef.current !== classId || !hasUnsavedChanges) {
+      setLocalGrades(grades);
+      setHasUnsavedChanges(false);
+      prevClassIdRef.current = classId;
+    }
   }, [classId, safeSemester, academicYear, grades, initialHeaders]);
+
+  // Real-time debounced Cloud auto-sync (automatically saves changes after 1.5s of inactivity)
+  useEffect(() => {
+    if (!hasUnsavedChanges) return;
+
+    const timer = setTimeout(async () => {
+      try {
+        setIsSaving(true);
+        await onSaveGrades(localGrades, columnHeaders);
+        Storage.setGradeHeaders(classId, columnHeaders);
+        setHasUnsavedChanges(false);
+        const now = new Date();
+        const timeStr = now.toLocaleTimeString('id-ID', {
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit',
+        });
+        setLastSavedTime(timeStr);
+      } catch (err) {
+        console.warn('[GradesView] Auto-sync notice:', err);
+      } finally {
+        setIsSaving(false);
+      }
+    }, 1500);
+
+    return () => clearTimeout(timer);
+  }, [localGrades, columnHeaders, hasUnsavedChanges, classId, onSaveGrades]);
 
   // Find or initialize grade object for student in local state
   const getStudentGrade = (studentId: string): StudentGrade => {
@@ -156,10 +191,22 @@ export const GradesView: React.FC<GradesViewProps> = ({
 
     setLocalGrades((prev) => {
       const index = prev.findIndex((g) => g.studentId === studentId);
+      const legacyUpdates: Partial<StudentGrade> = {};
+      if (key === 'm0_c0') legacyUpdates.formatif1 = numVal;
+      else if (key === 'm0_c1') legacyUpdates.formatif2 = numVal;
+      else if (key === 'm0_c2') legacyUpdates.formatif3 = numVal;
+      else if (key === 'm0_c3') legacyUpdates.formatif4 = numVal;
+      else if (key === 'm1_c0') legacyUpdates.formatif5 = numVal;
+      else if (key === 'm1_c1') legacyUpdates.formatif6 = numVal;
+      else if (key === 'm1_c2') legacyUpdates.formatif7 = numVal;
+      else if (key === 'm1_c3') legacyUpdates.formatif8 = numVal;
+      else if (key === 'sumatif_tengah') legacyUpdates.sumatifTengah = numVal;
+      else if (key === 'sumatif_akhir') legacyUpdates.sumatifAkhir = numVal;
+
       if (index >= 0) {
         const target = prev[index];
         const nextMonthly = { ...(target.monthlyGrades || {}), [key]: numVal };
-        const updated = { ...target, monthlyGrades: nextMonthly };
+        const updated = { ...target, ...legacyUpdates, monthlyGrades: nextMonthly };
         const next = [...prev];
         next[index] = updated;
         return next;
@@ -168,6 +215,7 @@ export const GradesView: React.FC<GradesViewProps> = ({
           id: `grd-${studentId}`,
           studentId,
           classId,
+          ...legacyUpdates,
           monthlyGrades: { [key]: numVal },
           catatan: '',
         };
@@ -612,6 +660,13 @@ export const GradesView: React.FC<GradesViewProps> = ({
               )}
             </button>
 
+            {lastSavedTime && !hasUnsavedChanges && (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-[11px] font-bold">
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                <span>Tersimpan ({lastSavedTime})</span>
+              </span>
+            )}
+
             <button
               type="button"
               onClick={() => setShowPublicShareModal(true)}
@@ -620,6 +675,16 @@ export const GradesView: React.FC<GradesViewProps> = ({
             >
               <Globe className="w-3.5 h-3.5 text-emerald-200" />
               <span>Bagikan Link Nilai Siswa</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setIsImportModalOpen(true)}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 text-xs font-bold rounded-xl shadow-xs transition-all cursor-pointer"
+              title="Unggah / Import nilai formatif dan sumatif dari file Excel atau salinan spreadsheet"
+            >
+              <UploadCloud className="w-3.5 h-3.5" />
+              <span>Import Nilai Excel</span>
             </button>
 
             <button
@@ -2472,6 +2537,26 @@ export const GradesView: React.FC<GradesViewProps> = ({
         onShowToast={onShowToast || ((msg) => console.log(msg))}
         currentUid={currentUid || 'demo'}
       />
+
+      {/* Import Grades Modal from Excel / Spreadsheet */}
+      {isImportModalOpen && (
+        <ImportGradesModal
+          isOpen={isImportModalOpen}
+          onClose={() => setIsImportModalOpen(false)}
+          students={students}
+          headers={columnHeaders}
+          currentGrades={localGrades}
+          classId={classId}
+          className={className}
+          onApplyGrades={(updated) => {
+            setLocalGrades(updated);
+            setHasUnsavedChanges(true);
+          }}
+          onShowToast={(msg, type) => {
+            if (onShowToast) onShowToast(msg, type);
+          }}
+        />
+      )}
     </div>
   );
 };
