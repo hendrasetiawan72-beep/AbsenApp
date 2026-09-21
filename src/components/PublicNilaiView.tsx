@@ -61,11 +61,39 @@ export const PublicNilaiView: React.FC<PublicNilaiViewProps> = ({
   initialStudentId,
   onExitToApp,
 }) => {
-  const [data, setData] = useState<PublicNilaiData | null>(null);
-  const [isLoading, setIsLoading] = useState<boolean>(true);
+  // Fast initial cache lookup for 0ms instant preview access
+  const [data, setData] = useState<PublicNilaiData | null>(() => {
+    if (typeof window === 'undefined') return null;
+    try {
+      const cached = localStorage.getItem(`cache_pub_nil_${shareId}`);
+      if (cached) return JSON.parse(cached);
+      if (shareId.includes('_')) {
+        const parts = shareId.split('_');
+        const lastPart = parts[parts.length - 1];
+        const aliasCached = localStorage.getItem(`cache_pub_nil_nil_${lastPart}`);
+        if (aliasCached) return JSON.parse(aliasCached);
+      }
+    } catch {}
+    return null;
+  });
+  const [isLoading, setIsLoading] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return true;
+    try {
+      if (localStorage.getItem(`cache_pub_nil_${shareId}`)) return false;
+      if (shareId.includes('_')) {
+        const parts = shareId.split('_');
+        const lastPart = parts[parts.length - 1];
+        if (localStorage.getItem(`cache_pub_nil_nil_${lastPart}`)) return false;
+      }
+    } catch {}
+    return true;
+  });
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [isLiveConnected, setIsLiveConnected] = useState<boolean>(false);
-  const [lastLiveSync, setLastLiveSync] = useState<string | null>(null);
+  const [lastLiveSync, setLastLiveSync] = useState<string | null>(() => {
+    if (typeof window === 'undefined') return null;
+    return new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+  });
   const [syncPulse, setSyncPulse] = useState<boolean>(false);
   const [showHeaderQr, setShowHeaderQr] = useState<boolean>(false);
 

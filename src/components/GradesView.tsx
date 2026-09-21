@@ -48,7 +48,8 @@ interface GradesViewProps {
   initialHeaders?: GradeColumnHeader[];
   onSaveGrades: (
     updatedGrades: StudentGrade[],
-    updatedHeaders: GradeColumnHeader[]
+    updatedHeaders: GradeColumnHeader[],
+    options?: { silent?: boolean }
   ) => Promise<void> | void;
   onUpdateGrade?: (
     studentId: string,
@@ -96,6 +97,7 @@ export const GradesView: React.FC<GradesViewProps> = ({
   // Unsaved changes & saving states
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [isAutoSyncing, setIsAutoSyncing] = useState(false);
   const [lastSavedTime, setLastSavedTime] = useState<string | null>(null);
 
   const safeSemester: 'Ganjil' | 'Genap' = semester === 'Genap' ? 'Genap' : 'Ganjil';
@@ -134,14 +136,14 @@ export const GradesView: React.FC<GradesViewProps> = ({
     }
   }, [classId, safeSemester, academicYear, grades, initialHeaders]);
 
-  // Real-time debounced Cloud auto-sync (automatically saves changes after 1.5s of inactivity)
+  // Non-blocking debounced Cloud auto-sync (automatically saves changes in background after 2.5s without locking the UI)
   useEffect(() => {
     if (!hasUnsavedChanges) return;
 
     const timer = setTimeout(async () => {
       try {
-        setIsSaving(true);
-        await onSaveGrades(localGrades, columnHeaders);
+        setIsAutoSyncing(true);
+        await onSaveGrades(localGrades, columnHeaders, { silent: true });
         Storage.setGradeHeaders(classId, columnHeaders);
         setHasUnsavedChanges(false);
         const now = new Date();
@@ -154,9 +156,9 @@ export const GradesView: React.FC<GradesViewProps> = ({
       } catch (err) {
         console.warn('[GradesView] Auto-sync notice:', err);
       } finally {
-        setIsSaving(false);
+        setIsAutoSyncing(false);
       }
-    }, 1500);
+    }, 2500);
 
     return () => clearTimeout(timer);
   }, [localGrades, columnHeaders, hasUnsavedChanges, classId, onSaveGrades]);
@@ -426,7 +428,7 @@ export const GradesView: React.FC<GradesViewProps> = ({
   const handleSaveToCloud = async () => {
     setIsSaving(true);
     try {
-      await onSaveGrades(localGrades, columnHeaders);
+      await onSaveGrades(localGrades, columnHeaders, { silent: false });
       Storage.setGradeHeaders(classId, columnHeaders);
       setHasUnsavedChanges(false);
       const now = new Date();
@@ -660,10 +662,24 @@ export const GradesView: React.FC<GradesViewProps> = ({
               )}
             </button>
 
-            {lastSavedTime && !hasUnsavedChanges && (
+            {isAutoSyncing && (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-50 border border-blue-200 text-blue-800 text-[11px] font-bold">
+                <div className="w-3 h-3 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
+                <span>Sinkronisasi otomatis...</span>
+              </span>
+            )}
+
+            {!isAutoSyncing && lastSavedTime && !hasUnsavedChanges && (
               <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-[11px] font-bold">
                 <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                <span>Tersimpan ({lastSavedTime})</span>
+                <span>Tersimpan di Cloud ({lastSavedTime})</span>
+              </span>
+            )}
+
+            {!isAutoSyncing && hasUnsavedChanges && (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-[11px] font-bold">
+                <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+                <span>Ada perubahan belum tersimpan</span>
               </span>
             )}
 

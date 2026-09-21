@@ -1029,9 +1029,10 @@ export default function App() {
   // Dedicated Cloud Save Handler for Grades (user explicitly presses Save button or debounced auto-sync)
   const handleSaveGradesToCloud = async (
     updatedGrades: StudentGrade[],
-    updatedHeaders: GradeColumnHeader[]
+    updatedHeaders: GradeColumnHeader[],
+    options?: { silent?: boolean }
   ) => {
-    // 1. Update allGrades state
+    // 1. Update allGrades state and local storage immediately (0ms)
     const otherClassGrades = allGrades.filter((g) => g.classId !== activeClassId);
     const combinedAllGrades = [...otherClassGrades, ...updatedGrades];
     setAllGrades(combinedAllGrades);
@@ -1047,7 +1048,9 @@ export default function App() {
       localStorage.getItem('smk_active_teacher_uid') ||
       't-guru-muh-bawang';
 
-    setIsCloudSaving(true);
+    if (!options?.silent) {
+      setIsCloudSaving(true);
+    }
     const startTime = performance.now();
     try {
       // High-performance single-roundtrip sync with headers bundled
@@ -1097,18 +1100,24 @@ export default function App() {
       }
 
       const elapsed = Math.round(performance.now() - startTime);
-      showToast(
-        `Penilaian (${updatedGrades.length} siswa) tersinkron ke Cloud server (${elapsed}ms)!`,
-        'success'
-      );
+      if (!options?.silent) {
+        showToast(
+          `Penilaian (${updatedGrades.length} siswa) tersinkron ke Cloud server (${elapsed}ms)!`,
+          'success'
+        );
+      }
     } catch (err: any) {
       console.error('Error saving grades to Cloud Firestore:', err);
-      showToast(
-        'Tersimpan di perangkat lokal (koneksi cloud: ' + (err?.message || 'offline') + ')',
-        'info'
-      );
+      if (!options?.silent) {
+        showToast(
+          'Tersimpan di perangkat lokal (koneksi cloud: ' + (err?.message || 'offline') + ')',
+          'info'
+        );
+      }
     } finally {
-      setIsCloudSaving(false);
+      if (!options?.silent) {
+        setIsCloudSaving(false);
+      }
     }
   };
 

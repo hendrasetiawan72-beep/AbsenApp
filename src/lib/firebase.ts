@@ -18,21 +18,15 @@ const dbId = (firebaseConfig as any).firestoreDatabaseId;
 
 let firestoreDb;
 try {
+  const settings = {
+    localCache: memoryLocalCache(),
+  };
+  firestoreDb = dbId
+    ? initializeFirestore(app, settings, dbId)
+    : initializeFirestore(app, settings);
+} catch (e) {
   // If already initialized in this runtime, reuse instance
   firestoreDb = getFirestore(app, dbId);
-} catch {
-  try {
-    const settings = {
-      experimentalForceLongPolling: true,
-      localCache: memoryLocalCache(),
-    };
-    firestoreDb = dbId
-      ? initializeFirestore(app, settings, dbId)
-      : initializeFirestore(app, settings);
-  } catch (e) {
-    console.warn('[Firebase] Fallback to standard getFirestore:', e);
-    firestoreDb = getFirestore(app, dbId);
-  }
 }
 
 export const db = firestoreDb;

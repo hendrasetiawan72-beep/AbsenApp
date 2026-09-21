@@ -783,7 +783,42 @@ export const FirestoreService = {
       { merge: true }
     ).catch((e) => console.warn('[FirestoreService] saveAttendanceSessionsBatch ws notice:', e));
 
-    await Promise.all([batchPromise, wsPromise]);
+    // Auto-update public_absensi snapshots for each affected class in background
+    try {
+      const classIds = Array.from(new Set(sessionsList.map((s) => s.classId).filter(Boolean)));
+      for (const cId of classIds) {
+        const clsSessions = sessionsList.filter((s) => s.classId === cId);
+        const sId = this.getPublicAbsensiShareId(uid, cId);
+        const cleanC = cId.replace(/[^a-zA-Z0-9_-]/g, '');
+        const cleanCNoHyphen = cId.replace(/[^a-zA-Z0-9]/g, '');
+        const absPayload = sanitizeForFirestore({
+          shareId: sId,
+          classId: cId,
+          sessions: clsSessions,
+          updatedAt: new Date().toISOString(),
+        });
+        setDoc(doc(db, 'public_absensi', sId), absPayload, { merge: true }).catch(() => {});
+        if (cleanC && sId !== `abs_${cleanC}`) {
+          setDoc(doc(db, 'public_absensi', `abs_${cleanC}`), absPayload, { merge: true }).catch(() => {});
+        }
+        if (cleanCNoHyphen && cleanCNoHyphen !== cleanC && sId !== `abs_${cleanCNoHyphen}`) {
+          setDoc(doc(db, 'public_absensi', `abs_${cleanCNoHyphen}`), absPayload, { merge: true }).catch(() => {});
+        }
+        if (typeof window !== 'undefined') {
+          try {
+            localStorage.setItem(`cache_pub_abs_${sId}`, JSON.stringify(absPayload));
+            if (cleanC) localStorage.setItem(`cache_pub_abs_abs_${cleanC}`, JSON.stringify(absPayload));
+            if (cleanCNoHyphen) localStorage.setItem(`cache_pub_abs_abs_${cleanCNoHyphen}`, JSON.stringify(absPayload));
+          } catch {}
+        }
+      }
+    } catch {}
+
+    // Cap network wait to max 1200ms so UI never hangs or becomes unresponsive
+    await Promise.race([
+      Promise.all([batchPromise, wsPromise]),
+      new Promise((resolve) => setTimeout(resolve, 1200)),
+    ]);
   },
 
   /**
@@ -895,17 +930,48 @@ export const FirestoreService = {
       });
     }
 
-    const subColPromise = commitBatchOperations(ops, 350).catch((e) => {
+    // Fire subcollection updates in background so hundreds of subcollection writes never block the UI
+    commitBatchOperations(ops, 350).catch((e) => {
       console.warn('[FirestoreService] Background subcollection batch notice:', e?.message || e);
     });
 
-    // Wait for both workspace document and subcollection writes with safety timeout
-    await Promise.all([
+    // Auto-update public_nilai snapshot for the affected class in background
+    if (gradeHeaders?.classId) {
+      try {
+        const cId = gradeHeaders.classId;
+        const targetGrades = (allGrades || grades).filter((g) => g.classId === cId);
+        const sId = this.getPublicNilaiShareId(uid, cId);
+        const cleanC = cId.replace(/[^a-zA-Z0-9_-]/g, '');
+        const cleanCNoHyphen = cId.replace(/[^a-zA-Z0-9]/g, '');
+        const pubPayload = sanitizeForFirestore({
+          shareId: sId,
+          classId: cId,
+          grades: targetGrades,
+          columnHeaders: gradeHeaders.headers,
+          updatedAt: new Date().toISOString(),
+        });
+        setDoc(doc(db, 'public_nilai', sId), pubPayload, { merge: true }).catch(() => {});
+        if (cleanC && sId !== `nil_${cleanC}`) {
+          setDoc(doc(db, 'public_nilai', `nil_${cleanC}`), pubPayload, { merge: true }).catch(() => {});
+        }
+        if (cleanCNoHyphen && cleanCNoHyphen !== cleanC && sId !== `nil_${cleanCNoHyphen}`) {
+          setDoc(doc(db, 'public_nilai', `nil_${cleanCNoHyphen}`), pubPayload, { merge: true }).catch(() => {});
+        }
+        if (typeof window !== 'undefined') {
+          try {
+            localStorage.setItem(`cache_pub_nil_${sId}`, JSON.stringify(pubPayload));
+            if (cleanC) localStorage.setItem(`cache_pub_nil_nil_${cleanC}`, JSON.stringify(pubPayload));
+            if (cleanCNoHyphen) localStorage.setItem(`cache_pub_nil_nil_${cleanCNoHyphen}`, JSON.stringify(pubPayload));
+          } catch {}
+        }
+      } catch {}
+    }
+
+    // Fast non-blocking completion: Wait for workspace document with a maximum 1200ms timeout
+    // Strictly prevents UI freezing, spinners sticking, or "not responding" errors
+    await Promise.race([
       wsPromise,
-      Promise.race([
-        subColPromise,
-        new Promise((resolve) => setTimeout(resolve, 2500)),
-      ]),
+      new Promise((resolve) => setTimeout(resolve, 1200)),
     ]);
   },
 
@@ -1161,11 +1227,26 @@ export const FirestoreService = {
 
     const writes: Promise<any>[] = [setDoc(publicRef, sanitized, { merge: true })];
 
-    // Mirror to clean class alias (e.g. tb_class1 or tb_class-1) for zero-friction sharing
+    // Mirror to clean class aliases for zero-friction sharing and instant lookup
     const cleanClass = data.classId ? data.classId.replace(/[^a-zA-Z0-9_-]/g, '') : '';
+    const cleanClassNoHyphen = data.classId ? data.classId.replace(/[^a-zA-Z0-9]/g, '') : '';
+
     if (cleanClass && data.shareId !== `tb_${cleanClass}`) {
       const aliasRef = doc(db, 'public_tabungan', `tb_${cleanClass}`);
       writes.push(setDoc(aliasRef, sanitized, { merge: true }).catch(() => {}));
+    }
+    if (cleanClassNoHyphen && cleanClassNoHyphen !== cleanClass && data.shareId !== `tb_${cleanClassNoHyphen}`) {
+      const aliasNoHyphenRef = doc(db, 'public_tabungan', `tb_${cleanClassNoHyphen}`);
+      writes.push(setDoc(aliasNoHyphenRef, sanitized, { merge: true }).catch(() => {}));
+    }
+
+    // Instant local cache for immediate zero-latency preview
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.setItem(`cache_pub_tb_${data.shareId}`, JSON.stringify(sanitized));
+        if (cleanClass) localStorage.setItem(`cache_pub_tb_tb_${cleanClass}`, JSON.stringify(sanitized));
+        if (cleanClassNoHyphen) localStorage.setItem(`cache_pub_tb_tb_${cleanClassNoHyphen}`, JSON.stringify(sanitized));
+      } catch {}
     }
 
     await Promise.all(writes);
@@ -1186,10 +1267,16 @@ export const FirestoreService = {
       const parts = shareId.split('_');
       if (parts.length > 2) {
         const classPart = parts.slice(2).join('_');
-        const aliasRef = doc(db, 'public_tabungan', `tb_${classPart}`);
+        const cleanClass = classPart.replace(/[^a-zA-Z0-9_-]/g, '');
+        const aliasRef = doc(db, 'public_tabungan', `tb_${cleanClass}`);
         const aliasSnap = await getDoc(aliasRef);
         if (aliasSnap.exists()) {
           return aliasSnap.data() as PublicTabunganData;
+        }
+        const noHyphen = cleanClass.replace(/[^a-zA-Z0-9]/g, '');
+        if (noHyphen !== cleanClass) {
+          const nhSnap = await getDoc(doc(db, 'public_tabungan', `tb_${noHyphen}`));
+          if (nhSnap.exists()) return nhSnap.data() as PublicTabunganData;
         }
       }
     }
@@ -1208,32 +1295,80 @@ export const FirestoreService = {
       onUpdate(null);
       return () => {};
     }
+
+    // 1. Instant local/session cache delivery (0ms instant UI load)
+    if (typeof window !== 'undefined') {
+      try {
+        const cached = localStorage.getItem(`cache_pub_tb_${shareId}`);
+        if (cached) {
+          onUpdate(JSON.parse(cached));
+        } else if (shareId.includes('_')) {
+          const parts = shareId.split('_');
+          const lastPart = parts[parts.length - 1];
+          const aliasCached = localStorage.getItem(`cache_pub_tb_tb_${lastPart}`);
+          if (aliasCached) {
+            onUpdate(JSON.parse(aliasCached));
+          }
+        }
+      } catch {}
+    }
+
     const publicRef = doc(db, 'public_tabungan', shareId);
     let fallbackUnsub: (() => void) | null = null;
-    let hasLoadedData = false;
+    let hasLoadedCloudData = false;
+
+    const saveToCache = (d: PublicTabunganData) => {
+      if (typeof window !== 'undefined') {
+        try {
+          localStorage.setItem(`cache_pub_tb_${shareId}`, JSON.stringify(d));
+          if (d.classId) {
+            const cleanC = d.classId.replace(/[^a-zA-Z0-9_-]/g, '');
+            localStorage.setItem(`cache_pub_tb_tb_${cleanC}`, JSON.stringify(d));
+          }
+        } catch {}
+      }
+    };
 
     const primaryUnsub = onSnapshot(
       publicRef,
       (snapshot) => {
         if (snapshot.exists()) {
-          hasLoadedData = true;
-          onUpdate(snapshot.data() as PublicTabunganData);
+          hasLoadedCloudData = true;
+          const fresh = snapshot.data() as PublicTabunganData;
+          saveToCache(fresh);
+          onUpdate(fresh);
         } else {
           // If primary shareId is not found, try fallback class alias snapshot
-          if (!hasLoadedData && shareId.startsWith('tb_')) {
+          if (!hasLoadedCloudData && shareId.startsWith('tb_')) {
             const parts = shareId.split('_');
             if (parts.length > 2) {
               const classPart = parts.slice(2).join('_');
-              const aliasRef = doc(db, 'public_tabungan', `tb_${classPart}`);
+              const cleanPart = classPart.replace(/[^a-zA-Z0-9_-]/g, '');
+              const aliasRef = doc(db, 'public_tabungan', `tb_${cleanPart}`);
               if (!fallbackUnsub) {
                 fallbackUnsub = onSnapshot(
                   aliasRef,
                   (aliasSnap) => {
                     if (aliasSnap.exists()) {
-                      hasLoadedData = true;
-                      onUpdate(aliasSnap.data() as PublicTabunganData);
+                      hasLoadedCloudData = true;
+                      const aliasData = aliasSnap.data() as PublicTabunganData;
+                      saveToCache(aliasData);
+                      onUpdate(aliasData);
                     } else {
-                      onUpdate(null);
+                      const noHyphen = cleanPart.replace(/[^a-zA-Z0-9]/g, '');
+                      if (noHyphen !== cleanPart) {
+                        getDoc(doc(db, 'public_tabungan', `tb_${noHyphen}`)).then((nhSnap) => {
+                          if (nhSnap.exists()) {
+                            const nhData = nhSnap.data() as PublicTabunganData;
+                            saveToCache(nhData);
+                            onUpdate(nhData);
+                          } else {
+                            onUpdate(null);
+                          }
+                        }).catch(() => onUpdate(null));
+                      } else {
+                        onUpdate(null);
+                      }
                     }
                   },
                   () => onUpdate(null)
@@ -1264,7 +1399,7 @@ export const FirestoreService = {
    */
   getPublicAbsensiShareId(teacherUid: string, classId: string): string {
     const cleanUid = (teacherUid || 'demo').replace(/[^a-zA-Z0-9]/g, '').slice(0, 10);
-    const cleanClass = (classId || 'default').replace(/[^a-zA-Z0-9]/g, '');
+    const cleanClass = (classId || 'default').replace(/[^a-zA-Z0-9_-]/g, '');
     return `abs_${cleanUid}_${cleanClass}`;
   },
 
@@ -1283,11 +1418,26 @@ export const FirestoreService = {
 
     const writes: Promise<any>[] = [setDoc(publicRef, sanitized, { merge: true })];
 
-    // Mirror to clean class alias (e.g. abs_class1) for zero-friction sharing
+    // Mirror to clean class aliases for zero-friction sharing and instant lookup
     const cleanClass = data.classId ? data.classId.replace(/[^a-zA-Z0-9_-]/g, '') : '';
+    const cleanClassNoHyphen = data.classId ? data.classId.replace(/[^a-zA-Z0-9]/g, '') : '';
+
     if (cleanClass && data.shareId !== `abs_${cleanClass}`) {
       const aliasRef = doc(db, 'public_absensi', `abs_${cleanClass}`);
       writes.push(setDoc(aliasRef, sanitized, { merge: true }).catch(() => {}));
+    }
+    if (cleanClassNoHyphen && cleanClassNoHyphen !== cleanClass && data.shareId !== `abs_${cleanClassNoHyphen}`) {
+      const aliasNoHyphenRef = doc(db, 'public_absensi', `abs_${cleanClassNoHyphen}`);
+      writes.push(setDoc(aliasNoHyphenRef, sanitized, { merge: true }).catch(() => {}));
+    }
+
+    // Instant local cache for immediate zero-latency preview
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.setItem(`cache_pub_abs_${data.shareId}`, JSON.stringify(sanitized));
+        if (cleanClass) localStorage.setItem(`cache_pub_abs_abs_${cleanClass}`, JSON.stringify(sanitized));
+        if (cleanClassNoHyphen) localStorage.setItem(`cache_pub_abs_abs_${cleanClassNoHyphen}`, JSON.stringify(sanitized));
+      } catch {}
     }
 
     await Promise.all(writes);
@@ -1308,10 +1458,16 @@ export const FirestoreService = {
       const parts = shareId.split('_');
       if (parts.length > 2) {
         const classPart = parts.slice(2).join('_');
-        const aliasRef = doc(db, 'public_absensi', `abs_${classPart}`);
+        const cleanClass = classPart.replace(/[^a-zA-Z0-9_-]/g, '');
+        const aliasRef = doc(db, 'public_absensi', `abs_${cleanClass}`);
         const aliasSnap = await getDoc(aliasRef);
         if (aliasSnap.exists()) {
           return aliasSnap.data() as PublicAbsensiData;
+        }
+        const noHyphen = cleanClass.replace(/[^a-zA-Z0-9]/g, '');
+        if (noHyphen !== cleanClass) {
+          const nhSnap = await getDoc(doc(db, 'public_absensi', `abs_${noHyphen}`));
+          if (nhSnap.exists()) return nhSnap.data() as PublicAbsensiData;
         }
       }
     }
@@ -1330,32 +1486,80 @@ export const FirestoreService = {
       onUpdate(null);
       return () => {};
     }
+
+    // 1. Instant local/session cache delivery (0ms instant UI load)
+    if (typeof window !== 'undefined') {
+      try {
+        const cached = localStorage.getItem(`cache_pub_abs_${shareId}`);
+        if (cached) {
+          onUpdate(JSON.parse(cached));
+        } else if (shareId.includes('_')) {
+          const parts = shareId.split('_');
+          const lastPart = parts[parts.length - 1];
+          const aliasCached = localStorage.getItem(`cache_pub_abs_abs_${lastPart}`);
+          if (aliasCached) {
+            onUpdate(JSON.parse(aliasCached));
+          }
+        }
+      } catch {}
+    }
+
     const publicRef = doc(db, 'public_absensi', shareId);
     let fallbackUnsub: (() => void) | null = null;
-    let hasLoadedData = false;
+    let hasLoadedCloudData = false;
+
+    const saveToCache = (d: PublicAbsensiData) => {
+      if (typeof window !== 'undefined') {
+        try {
+          localStorage.setItem(`cache_pub_abs_${shareId}`, JSON.stringify(d));
+          if (d.classId) {
+            const cleanC = d.classId.replace(/[^a-zA-Z0-9_-]/g, '');
+            localStorage.setItem(`cache_pub_abs_abs_${cleanC}`, JSON.stringify(d));
+          }
+        } catch {}
+      }
+    };
 
     const primaryUnsub = onSnapshot(
       publicRef,
       (snapshot) => {
         if (snapshot.exists()) {
-          hasLoadedData = true;
-          onUpdate(snapshot.data() as PublicAbsensiData);
+          hasLoadedCloudData = true;
+          const fresh = snapshot.data() as PublicAbsensiData;
+          saveToCache(fresh);
+          onUpdate(fresh);
         } else {
           // If primary shareId is not found, try fallback class alias snapshot
-          if (!hasLoadedData && shareId.startsWith('abs_')) {
+          if (!hasLoadedCloudData && shareId.startsWith('abs_')) {
             const parts = shareId.split('_');
             if (parts.length > 2) {
               const classPart = parts.slice(2).join('_');
-              const aliasRef = doc(db, 'public_absensi', `abs_${classPart}`);
+              const cleanPart = classPart.replace(/[^a-zA-Z0-9_-]/g, '');
+              const aliasRef = doc(db, 'public_absensi', `abs_${cleanPart}`);
               if (!fallbackUnsub) {
                 fallbackUnsub = onSnapshot(
                   aliasRef,
                   (aliasSnap) => {
                     if (aliasSnap.exists()) {
-                      hasLoadedData = true;
-                      onUpdate(aliasSnap.data() as PublicAbsensiData);
+                      hasLoadedCloudData = true;
+                      const aliasData = aliasSnap.data() as PublicAbsensiData;
+                      saveToCache(aliasData);
+                      onUpdate(aliasData);
                     } else {
-                      onUpdate(null);
+                      const noHyphen = cleanPart.replace(/[^a-zA-Z0-9]/g, '');
+                      if (noHyphen !== cleanPart) {
+                        getDoc(doc(db, 'public_absensi', `abs_${noHyphen}`)).then((nhSnap) => {
+                          if (nhSnap.exists()) {
+                            const nhData = nhSnap.data() as PublicAbsensiData;
+                            saveToCache(nhData);
+                            onUpdate(nhData);
+                          } else {
+                            onUpdate(null);
+                          }
+                        }).catch(() => onUpdate(null));
+                      } else {
+                        onUpdate(null);
+                      }
                     }
                   },
                   () => onUpdate(null)
@@ -1386,7 +1590,7 @@ export const FirestoreService = {
    */
   getPublicNilaiShareId(teacherUid: string, classId: string): string {
     const cleanUid = (teacherUid || 'demo').replace(/[^a-zA-Z0-9]/g, '').slice(0, 10);
-    const cleanClass = (classId || 'default').replace(/[^a-zA-Z0-9]/g, '');
+    const cleanClass = (classId || 'default').replace(/[^a-zA-Z0-9_-]/g, '');
     return `nil_${cleanUid}_${cleanClass}`;
   },
 
@@ -1398,18 +1602,58 @@ export const FirestoreService = {
       throw new Error('ID tautan publik nilai tidak valid.');
     }
     const publicRef = doc(db, 'public_nilai', data.shareId);
+
+    // Normalize monthly grades if present so formatif 1..8 and sumatifs are always populated
+    const normalizedGrades = (data.grades || []).map((g) => {
+      const m = g.monthlyGrades || {};
+      return {
+        ...g,
+        formatif1: g.formatif1 ?? (m['m0_c0'] !== undefined ? Number(m['m0_c0']) : null),
+        formatif2: g.formatif2 ?? (m['m0_c1'] !== undefined ? Number(m['m0_c1']) : null),
+        formatif3: g.formatif3 ?? (m['m0_c2'] !== undefined ? Number(m['m0_c2']) : null),
+        formatif4: g.formatif4 ?? (m['m0_c3'] !== undefined ? Number(m['m0_c3']) : null),
+        formatif5: g.formatif5 ?? (m['m1_c0'] !== undefined ? Number(m['m1_c0']) : null),
+        formatif6: g.formatif6 ?? (m['m1_c1'] !== undefined ? Number(m['m1_c1']) : null),
+        formatif7: g.formatif7 ?? (m['m1_c2'] !== undefined ? Number(m['m1_c2']) : null),
+        formatif8: g.formatif8 ?? (m['m1_c3'] !== undefined ? Number(m['m1_c3']) : null),
+        sumatifTengah:
+          g.sumatifTengah ??
+          (m['sumatif_tengah'] !== undefined ? Number(m['sumatif_tengah']) : null),
+        sumatifAkhir:
+          g.sumatifAkhir ??
+          (m['sumatif_akhir'] !== undefined ? Number(m['sumatif_akhir']) : null),
+        monthlyGrades: m,
+      };
+    });
+
     const sanitized = sanitizeForFirestore({
       ...data,
+      grades: normalizedGrades,
       updatedAt: new Date().toISOString(),
     });
 
     const writes: Promise<any>[] = [setDoc(publicRef, sanitized, { merge: true })];
 
-    // Mirror to clean class alias (e.g. nil_class1) for zero-friction sharing
+    // Mirror to clean class aliases for zero-friction sharing and instant lookup
     const cleanClass = data.classId ? data.classId.replace(/[^a-zA-Z0-9_-]/g, '') : '';
+    const cleanClassNoHyphen = data.classId ? data.classId.replace(/[^a-zA-Z0-9]/g, '') : '';
+
     if (cleanClass && data.shareId !== `nil_${cleanClass}`) {
       const aliasRef = doc(db, 'public_nilai', `nil_${cleanClass}`);
       writes.push(setDoc(aliasRef, sanitized, { merge: true }).catch(() => {}));
+    }
+    if (cleanClassNoHyphen && cleanClassNoHyphen !== cleanClass && data.shareId !== `nil_${cleanClassNoHyphen}`) {
+      const aliasNoHyphenRef = doc(db, 'public_nilai', `nil_${cleanClassNoHyphen}`);
+      writes.push(setDoc(aliasNoHyphenRef, sanitized, { merge: true }).catch(() => {}));
+    }
+
+    // Instant local cache for immediate zero-latency preview
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.setItem(`cache_pub_nil_${data.shareId}`, JSON.stringify(sanitized));
+        if (cleanClass) localStorage.setItem(`cache_pub_nil_nil_${cleanClass}`, JSON.stringify(sanitized));
+        if (cleanClassNoHyphen) localStorage.setItem(`cache_pub_nil_nil_${cleanClassNoHyphen}`, JSON.stringify(sanitized));
+      } catch {}
     }
 
     await Promise.all(writes);
@@ -1430,10 +1674,16 @@ export const FirestoreService = {
       const parts = shareId.split('_');
       if (parts.length > 2) {
         const classPart = parts.slice(2).join('_');
-        const aliasRef = doc(db, 'public_nilai', `nil_${classPart}`);
+        const cleanClass = classPart.replace(/[^a-zA-Z0-9_-]/g, '');
+        const aliasRef = doc(db, 'public_nilai', `nil_${cleanClass}`);
         const aliasSnap = await getDoc(aliasRef);
         if (aliasSnap.exists()) {
           return aliasSnap.data() as PublicNilaiData;
+        }
+        const noHyphen = cleanClass.replace(/[^a-zA-Z0-9]/g, '');
+        if (noHyphen !== cleanClass) {
+          const nhSnap = await getDoc(doc(db, 'public_nilai', `nil_${noHyphen}`));
+          if (nhSnap.exists()) return nhSnap.data() as PublicNilaiData;
         }
       }
     }
@@ -1452,32 +1702,80 @@ export const FirestoreService = {
       onUpdate(null);
       return () => {};
     }
+
+    // 1. Instant local/session cache delivery (0ms instant UI load)
+    if (typeof window !== 'undefined') {
+      try {
+        const cached = localStorage.getItem(`cache_pub_nil_${shareId}`);
+        if (cached) {
+          onUpdate(JSON.parse(cached));
+        } else if (shareId.includes('_')) {
+          const parts = shareId.split('_');
+          const lastPart = parts[parts.length - 1];
+          const aliasCached = localStorage.getItem(`cache_pub_nil_nil_${lastPart}`);
+          if (aliasCached) {
+            onUpdate(JSON.parse(aliasCached));
+          }
+        }
+      } catch {}
+    }
+
     const publicRef = doc(db, 'public_nilai', shareId);
     let fallbackUnsub: (() => void) | null = null;
-    let hasLoadedData = false;
+    let hasLoadedCloudData = false;
+
+    const saveToCache = (d: PublicNilaiData) => {
+      if (typeof window !== 'undefined') {
+        try {
+          localStorage.setItem(`cache_pub_nil_${shareId}`, JSON.stringify(d));
+          if (d.classId) {
+            const cleanC = d.classId.replace(/[^a-zA-Z0-9_-]/g, '');
+            localStorage.setItem(`cache_pub_nil_nil_${cleanC}`, JSON.stringify(d));
+          }
+        } catch {}
+      }
+    };
 
     const primaryUnsub = onSnapshot(
       publicRef,
       (snapshot) => {
         if (snapshot.exists()) {
-          hasLoadedData = true;
-          onUpdate(snapshot.data() as PublicNilaiData);
+          hasLoadedCloudData = true;
+          const fresh = snapshot.data() as PublicNilaiData;
+          saveToCache(fresh);
+          onUpdate(fresh);
         } else {
           // If primary shareId is not found, try fallback class alias snapshot
-          if (!hasLoadedData && shareId.startsWith('nil_')) {
+          if (!hasLoadedCloudData && shareId.startsWith('nil_')) {
             const parts = shareId.split('_');
             if (parts.length > 2) {
               const classPart = parts.slice(2).join('_');
-              const aliasRef = doc(db, 'public_nilai', `nil_${classPart}`);
+              const cleanPart = classPart.replace(/[^a-zA-Z0-9_-]/g, '');
+              const aliasRef = doc(db, 'public_nilai', `nil_${cleanPart}`);
               if (!fallbackUnsub) {
                 fallbackUnsub = onSnapshot(
                   aliasRef,
                   (aliasSnap) => {
                     if (aliasSnap.exists()) {
-                      hasLoadedData = true;
-                      onUpdate(aliasSnap.data() as PublicNilaiData);
+                      hasLoadedCloudData = true;
+                      const aliasData = aliasSnap.data() as PublicNilaiData;
+                      saveToCache(aliasData);
+                      onUpdate(aliasData);
                     } else {
-                      onUpdate(null);
+                      const noHyphen = cleanPart.replace(/[^a-zA-Z0-9]/g, '');
+                      if (noHyphen !== cleanPart) {
+                        getDoc(doc(db, 'public_nilai', `nil_${noHyphen}`)).then((nhSnap) => {
+                          if (nhSnap.exists()) {
+                            const nhData = nhSnap.data() as PublicNilaiData;
+                            saveToCache(nhData);
+                            onUpdate(nhData);
+                          } else {
+                            onUpdate(null);
+                          }
+                        }).catch(() => onUpdate(null));
+                      } else {
+                        onUpdate(null);
+                      }
                     }
                   },
                   () => onUpdate(null)
