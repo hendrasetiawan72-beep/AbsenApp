@@ -28,6 +28,7 @@ import {
   QrCode,
 } from 'lucide-react';
 import { FirestoreService, PublicAbsensiData } from '../services/firestoreService';
+import { subscribeToPreviewSync } from '../services/previewSyncChannel';
 import { AttendanceSession, AttendanceStatus } from '../types';
 import { QRCodeModal } from './QRCodeModal';
 
@@ -117,70 +118,85 @@ export const PublicAbsensiView: React.FC<PublicAbsensiViewProps> = ({
   const [enteredPin, setEnteredPin] = useState<string>('');
   const [pinError, setPinError] = useState<string | null>(null);
 
-  // Real-time Firestore subscription
+  // Real-time Firestore subscription + instant 0ms cross-tab/channel synchronization
   useEffect(() => {
-    setIsLoading(true);
+    // Only show loading indicator if data has not yet been loaded from cache
+    if (!data) {
+      setIsLoading(true);
+    }
     setErrorMsg(null);
 
-    const unsubscribe = FirestoreService.subscribePublicAbsensi(
-      shareId,
-      (updatedData) => {
-        setIsLoading(false);
-        if (updatedData) {
-          setData(updatedData);
-          setIsLiveConnected(true);
-          const nowStr = new Date().toLocaleTimeString('id-ID', {
-            hour: '2-digit',
-            minute: '2-digit',
-            second: '2-digit',
-          });
-          setLastLiveSync(nowStr);
-          setSyncPulse(true);
-          setTimeout(() => setSyncPulse(false), 1500);
+    const applyDataUpdate = (updatedData: PublicAbsensiData | null) => {
+      setIsLoading(false);
+      if (updatedData) {
+        setData(updatedData);
+        setIsLiveConnected(true);
+        const nowStr = new Date().toLocaleTimeString('id-ID', {
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit',
+        });
+        setLastLiveSync(nowStr);
+        setSyncPulse(true);
+        setTimeout(() => setSyncPulse(false), 1500);
 
-          // Check PIN lock
-          if (updatedData.pinRequired && updatedData.accessPin) {
-            const unlockedCache = sessionStorage.getItem(`pin_unlocked_abs_${shareId}`);
-            if (unlockedCache !== 'true') {
-              setIsPinUnlocked(false);
-            } else {
-              setIsPinUnlocked(true);
-            }
+        // Check PIN lock
+        if (updatedData.pinRequired && updatedData.accessPin) {
+          const unlockedCache = sessionStorage.getItem(`pin_unlocked_abs_${shareId}`);
+          if (unlockedCache !== 'true') {
+            setIsPinUnlocked(false);
           } else {
             setIsPinUnlocked(true);
           }
-
-          // Set default selected session if not yet set
-          if (updatedData.sessions && updatedData.sessions.length > 0) {
-            setSelectedSessionId((prev) => {
-              const exists = updatedData.sessions.some((s) => s.id === prev);
-              if (!exists) {
-                // Select most recent session
-                return updatedData.sessions[updatedData.sessions.length - 1].id;
-              }
-              return prev;
-            });
-          }
-
-          // Set initial student if query param exists
-          if (updatedData.students && updatedData.students.length > 0) {
-            setSelectedStudentId((prev) => {
-              if (prev) return prev;
-              if (initialNisn) {
-                const matchNisn = updatedData.students.find((s) => s.nisn === initialNisn);
-                if (matchNisn) return matchNisn.id;
-              }
-              if (initialStudentId) {
-                const matchId = updatedData.students.find((s) => s.id === initialStudentId);
-                if (matchId) return matchId.id;
-              }
-              return updatedData.students[0].id;
-            });
-          }
         } else {
-          setData(null);
-          setIsLiveConnected(false);
+          setIsPinUnlocked(true);
         }
+
+        // Set default selected session if not yet set
+        if (updatedData.sessions && updatedData.sessions.length > 0) {
+          setSelectedSessionId((prev) => {
+            const exists = updatedData.sessions.some((s) => s.id === prev);
+            if (!exists) {
+              // Select most recent session
+              return updatedData.sessions[updatedData.sessions.length - 1].id;
+            }
+            return prev;
+          });
+        }
+
+        // Set initial student if query param exists
+        if (updatedData.students && updatedData.students.length > 0) {
+          setSelectedStudentId((prev) => {
+            if (prev) return prev;
+            if (initialNisn) {
+              const matchNisn = updatedData.students.find((s) => s.nisn === initialNisn);
+              if (matchNisn) return matchNisn.id;
+            }
+            if (initialStudentId) {
+              const matchId = updatedData.students.find((s) => s.id === initialStudentId);
+              if (matchId) return matchId.id;
+            }
+            return updatedData.students[0].id;
+          });
+        }
+      } else {
+        setData(null);
+        setIsLiveConnected(false);
+      }
+    };
+
+    // 1. Instant cross-tab and storage channel synchronization (0ms latency)
+    const unsubChannel = subscribeToPreviewSync('absensi', shareId, (instantData) => {
+      if (instantData) {
+        applyDataUpdate(instantData);
+      }
+    });
+
+    // 2. Cloud Firestore persistent real-time streaming
+    const unsubscribe = FirestoreService.subscribePublicAbsensi(
+      shareId,
+      (updatedData) => {
+        applyDataUpdate(updatedData);
       },
       (err) => {
         setIsLoading(false);
@@ -189,7 +205,10 @@ export const PublicAbsensiView: React.FC<PublicAbsensiViewProps> = ({
       }
     );
 
-    return () => unsubscribe();
+    return () => {
+      unsubChannel();
+      unsubscribe();
+    };
   }, [shareId, initialNisn, initialStudentId]);
 
   // Handle PIN unlock

@@ -136,7 +136,7 @@ export const GradesView: React.FC<GradesViewProps> = ({
     }
   }, [classId, safeSemester, academicYear, grades, initialHeaders]);
 
-  // Non-blocking debounced Cloud auto-sync (automatically saves changes in background after 2.5s without locking the UI)
+  // Non-blocking debounced Cloud auto-sync (automatically saves changes in background after 500ms without locking the UI)
   useEffect(() => {
     if (!hasUnsavedChanges) return;
 
@@ -158,7 +158,7 @@ export const GradesView: React.FC<GradesViewProps> = ({
       } finally {
         setIsAutoSyncing(false);
       }
-    }, 2500);
+    }, 500);
 
     return () => clearTimeout(timer);
   }, [localGrades, columnHeaders, hasUnsavedChanges, classId, onSaveGrades]);
@@ -685,7 +685,14 @@ export const GradesView: React.FC<GradesViewProps> = ({
 
             <button
               type="button"
-              onClick={() => setShowPublicShareModal(true)}
+              onClick={() => {
+                if (hasUnsavedChanges) {
+                  onSaveGrades(localGrades, columnHeaders, { silent: true });
+                  Storage.setGradeHeaders(classId, columnHeaders);
+                  setHasUnsavedChanges(false);
+                }
+                setShowPublicShareModal(true);
+              }}
               className="inline-flex items-center gap-1.5 px-3.5 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white text-xs font-black rounded-xl shadow-xs transition-all cursor-pointer"
               title="Buat & bagikan tautan pratinjau nilai & rekapitulasi nilai untuk siswa & orang tua"
             >

@@ -75,9 +75,12 @@ export const SharePublicAbsensiModal: React.FC<SharePublicAbsensiModalProps> = (
     ? FirestoreService.getPublicAbsensiShareId(currentUid, currentClass.id)
     : 'abs_default';
 
-  // Load existing published status on modal open or class change
+  // Load existing published status and auto-sync latest data on modal open
   useEffect(() => {
     if (!isOpen || !currentClass?.id) return;
+
+    // Fast non-blocking auto-sync to ensure the public preview snapshot is 100% up-to-date
+    handlePublishToCloud({ silent: true });
 
     // Check localStorage cache first
     const cachedTime = localStorage.getItem(`absensi_last_pub_${currentClass.id}`);
@@ -240,9 +243,9 @@ export const SharePublicAbsensiModal: React.FC<SharePublicAbsensiModalProps> = (
   };
 
   // Publish / Sync data snapshot to Firestore public_absensi collection
-  const handlePublishToCloud = async () => {
+  const handlePublishToCloud = async (options?: { silent?: boolean }) => {
     if (!currentClass?.id) return;
-    setIsPublishing(true);
+    if (!options?.silent) setIsPublishing(true);
 
     try {
       const classSessions = sessions.filter((s) => s.classId === currentClass.id);
@@ -284,18 +287,22 @@ export const SharePublicAbsensiModal: React.FC<SharePublicAbsensiModalProps> = (
       setLastPublishedAt(nowStr);
       localStorage.setItem(`absensi_last_pub_${currentClass.id}`, nowStr);
 
-      onShowToast(
-        'Data presensi harian & rekap kelas berhasil disinkronkan ke tautan publik orang tua!',
-        'success'
-      );
+      if (!options?.silent) {
+        onShowToast(
+          'Data presensi harian & rekap kelas berhasil disinkronkan ke tautan publik orang tua!',
+          'success'
+        );
+      }
     } catch (err: any) {
       console.error('Error publishing public absensi:', err);
-      onShowToast(
-        'Gagal menyinkronkan data: ' + (err?.message || 'Koneksi Firestore gagal'),
-        'error'
-      );
+      if (!options?.silent) {
+        onShowToast(
+          'Gagal menyinkronkan data: ' + (err?.message || 'Koneksi Firestore gagal'),
+          'error'
+        );
+      }
     } finally {
-      setIsPublishing(false);
+      if (!options?.silent) setIsPublishing(false);
     }
   };
 
@@ -403,6 +410,7 @@ export const SharePublicAbsensiModal: React.FC<SharePublicAbsensiModalProps> = (
                 href={classPublicUrl}
                 target="_blank"
                 rel="noreferrer"
+                onClick={() => handlePublishToCloud({ silent: true })}
                 className="inline-flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl text-xs font-bold bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 transition-colors cursor-pointer shrink-0"
                 title="Buka Preview di Tab Baru"
               >

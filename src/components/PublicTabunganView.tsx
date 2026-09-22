@@ -32,6 +32,7 @@ import {
   QrCode,
 } from 'lucide-react';
 import { FirestoreService, PublicTabunganData } from '../services/firestoreService';
+import { subscribeToPreviewSync } from '../services/previewSyncChannel';
 import { SavingTransaction, SavingCategory } from '../types';
 import { QRCodeModal } from './QRCodeModal';
 
@@ -110,39 +111,54 @@ export const PublicTabunganView: React.FC<PublicTabunganViewProps> = ({
   const [enteredPin, setEnteredPin] = useState<string>('');
   const [pinError, setPinError] = useState<string | null>(null);
 
-  // Real-time listener for Firestore public document
+  // Real-time listener for Firestore public document + instant 0ms cross-tab/channel synchronization
   useEffect(() => {
-    setIsLoading(true);
+    // Only show loading indicator if data has not yet been loaded from cache
+    if (!data) {
+      setIsLoading(true);
+    }
     setErrorMsg(null);
 
+    const applyDataUpdate = (updatedData: PublicTabunganData | null) => {
+      setIsLoading(false);
+      if (updatedData) {
+        setData(updatedData);
+        setIsLiveConnected(true);
+        const nowStr = new Date().toLocaleTimeString('id-ID', {
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit',
+        });
+        setLastLiveSync(nowStr);
+
+        // Flash pulse effect on real-time update
+        setSyncPulse(true);
+        setTimeout(() => setSyncPulse(false), 2000);
+
+        if (updatedData.pinRequired && updatedData.accessPin) {
+          setIsPinUnlocked(false);
+        } else {
+          setIsPinUnlocked(true);
+        }
+      } else {
+        // If Firestore returns null (not found in cloud yet), check fallback
+        setErrorMsg('Tautan publik tabungan belum ditemukan atau belum diterbitkan oleh wali kelas.');
+        setIsLiveConnected(false);
+      }
+    };
+
+    // 1. Instant cross-tab and storage channel synchronization (0ms latency)
+    const unsubChannel = subscribeToPreviewSync('tabungan', shareId, (instantData) => {
+      if (instantData) {
+        applyDataUpdate(instantData);
+      }
+    });
+
+    // 2. Cloud Firestore persistent real-time streaming
     const unsubscribe = FirestoreService.subscribePublicTabungan(
       shareId,
       (updatedData) => {
-        setIsLoading(false);
-        if (updatedData) {
-          setData(updatedData);
-          setIsLiveConnected(true);
-          const nowStr = new Date().toLocaleTimeString('id-ID', {
-            hour: '2-digit',
-            minute: '2-digit',
-            second: '2-digit',
-          });
-          setLastLiveSync(nowStr);
-
-          // Flash pulse effect on real-time update
-          setSyncPulse(true);
-          setTimeout(() => setSyncPulse(false), 2000);
-
-          if (updatedData.pinRequired && updatedData.accessPin) {
-            setIsPinUnlocked(false);
-          } else {
-            setIsPinUnlocked(true);
-          }
-        } else {
-          // If Firestore returns null (not found in cloud yet), check fallback
-          setErrorMsg('Tautan publik tabungan belum ditemukan atau belum diterbitkan oleh wali kelas.');
-          setIsLiveConnected(false);
-        }
+        applyDataUpdate(updatedData);
       },
       (err) => {
         console.error('[PublicTabunganView] Firestore listener error:', err);
@@ -152,7 +168,10 @@ export const PublicTabunganView: React.FC<PublicTabunganViewProps> = ({
       }
     );
 
-    return () => unsubscribe();
+    return () => {
+      unsubChannel();
+      unsubscribe();
+    };
   }, [shareId]);
 
   // Handle direct link (from URL nisn or studentId) once data loads

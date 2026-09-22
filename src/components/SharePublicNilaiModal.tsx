@@ -77,9 +77,12 @@ export const SharePublicNilaiModal: React.FC<SharePublicNilaiModalProps> = ({
     ? FirestoreService.getPublicNilaiShareId(currentUid, currentClass.id)
     : 'nil_default';
 
-  // Load existing published status on modal open or class change
+  // Load existing published status and auto-sync latest data on modal open
   useEffect(() => {
     if (!isOpen || !currentClass?.id) return;
+
+    // Fast non-blocking auto-sync to ensure the public preview snapshot is 100% up-to-date
+    handlePublishToCloud({ silent: true });
 
     // Check localStorage cache first
     const cachedTime = localStorage.getItem(`nilai_last_pub_${currentClass.id}`);
@@ -206,9 +209,9 @@ export const SharePublicNilaiModal: React.FC<SharePublicNilaiModalProps> = ({
   };
 
   // Publish / Sync data snapshot to Firestore public_nilai collection
-  const handlePublishToCloud = async () => {
+  const handlePublishToCloud = async (options?: { silent?: boolean }) => {
     if (!currentClass?.id) return;
-    setIsPublishing(true);
+    if (!options?.silent) setIsPublishing(true);
 
     try {
       const classStudents = students.map((st) => ({
@@ -283,18 +286,22 @@ export const SharePublicNilaiModal: React.FC<SharePublicNilaiModalProps> = ({
       setLastPublishedAt(nowStr);
       localStorage.setItem(`nilai_last_pub_${currentClass.id}`, nowStr);
 
-      onShowToast(
-        'Data nilai formatif & sumatif kelas berhasil disinkronkan ke tautan publik siswa!',
-        'success'
-      );
+      if (!options?.silent) {
+        onShowToast(
+          'Data nilai formatif & sumatif kelas berhasil disinkronkan ke tautan publik siswa!',
+          'success'
+        );
+      }
     } catch (err: any) {
       console.error('Error publishing public nilai:', err);
-      onShowToast(
-        'Gagal menyinkronkan data: ' + (err?.message || 'Koneksi Firestore gagal'),
-        'error'
-      );
+      if (!options?.silent) {
+        onShowToast(
+          'Gagal menyinkronkan data: ' + (err?.message || 'Koneksi Firestore gagal'),
+          'error'
+        );
+      }
     } finally {
-      setIsPublishing(false);
+      if (!options?.silent) setIsPublishing(false);
     }
   };
 
@@ -390,6 +397,7 @@ export const SharePublicNilaiModal: React.FC<SharePublicNilaiModalProps> = ({
                 href={classPublicUrl}
                 target="_blank"
                 rel="noreferrer"
+                onClick={() => handlePublishToCloud({ silent: true })}
                 className="p-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl transition-colors shrink-0"
                 title="Buka preview di tab baru"
               >

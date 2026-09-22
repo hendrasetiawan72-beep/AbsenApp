@@ -22,6 +22,7 @@ import {
   SavingTransaction,
 } from '../types';
 import { Storage } from '../utils/storage';
+import { broadcastPreviewUpdate } from './previewSyncChannel';
 
 /**
  * Sanitize object to remove undefined values before sending to Firestore
@@ -1240,8 +1241,9 @@ export const FirestoreService = {
       writes.push(setDoc(aliasNoHyphenRef, sanitized, { merge: true }).catch(() => {}));
     }
 
-    // Instant local cache for immediate zero-latency preview
+    // Instant local cache and broadcast channel for immediate zero-latency preview
     if (typeof window !== 'undefined') {
+      broadcastPreviewUpdate('tabungan', data.shareId, data.classId, sanitized);
       try {
         localStorage.setItem(`cache_pub_tb_${data.shareId}`, JSON.stringify(sanitized));
         if (cleanClass) localStorage.setItem(`cache_pub_tb_tb_${cleanClass}`, JSON.stringify(sanitized));
@@ -1431,8 +1433,9 @@ export const FirestoreService = {
       writes.push(setDoc(aliasNoHyphenRef, sanitized, { merge: true }).catch(() => {}));
     }
 
-    // Instant local cache for immediate zero-latency preview
+    // Instant local cache and broadcast channel for immediate zero-latency preview
     if (typeof window !== 'undefined') {
+      broadcastPreviewUpdate('absensi', data.shareId, data.classId, sanitized);
       try {
         localStorage.setItem(`cache_pub_abs_${data.shareId}`, JSON.stringify(sanitized));
         if (cleanClass) localStorage.setItem(`cache_pub_abs_abs_${cleanClass}`, JSON.stringify(sanitized));
@@ -1647,8 +1650,9 @@ export const FirestoreService = {
       writes.push(setDoc(aliasNoHyphenRef, sanitized, { merge: true }).catch(() => {}));
     }
 
-    // Instant local cache for immediate zero-latency preview
+    // Instant local cache and broadcast channel for immediate zero-latency preview
     if (typeof window !== 'undefined') {
+      broadcastPreviewUpdate('nilai', data.shareId, data.classId, sanitized);
       try {
         localStorage.setItem(`cache_pub_nil_${data.shareId}`, JSON.stringify(sanitized));
         if (cleanClass) localStorage.setItem(`cache_pub_nil_nil_${cleanClass}`, JSON.stringify(sanitized));

@@ -72,9 +72,12 @@ export const SharePublicTabunganModal: React.FC<SharePublicTabunganModalProps> =
     ? FirestoreService.getPublicTabunganShareId(currentUid, currentClass.id)
     : 'tb_default';
 
-  // Load existing published status on modal open or class change
+  // Load existing published status and auto-sync on modal open
   useEffect(() => {
     if (!isOpen || !currentClass?.id) return;
+
+    // Fast non-blocking auto-sync to ensure the public preview snapshot is 100% up-to-date
+    handlePublishToCloud({ silent: true });
 
     // Check localStorage cache first
     const cachedTime = localStorage.getItem(`tabungan_last_pub_${currentClass.id}`);
@@ -214,8 +217,8 @@ export const SharePublicTabunganModal: React.FC<SharePublicTabunganModalProps> =
   };
 
   // Publish / Sync snapshot to Cloud Firestore
-  const handlePublishToCloud = async () => {
-    setIsPublishing(true);
+  const handlePublishToCloud = async (options?: { silent?: boolean }) => {
+    if (!options?.silent) setIsPublishing(true);
     try {
       const publicPayload: PublicTabunganData = {
         shareId,
@@ -248,12 +251,16 @@ export const SharePublicTabunganModal: React.FC<SharePublicTabunganModalProps> =
       const now = new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
       setLastPublishedAt(now);
       localStorage.setItem(`tabungan_last_pub_${currentClass.id}`, now);
-      onShowToast('Data tabungan publik kelas berhasil diterbitkan & disinkronkan ke Cloud Firestore!', 'success');
+      if (!options?.silent) {
+        onShowToast('Data tabungan publik kelas berhasil diterbitkan & disinkronkan ke Cloud Firestore!', 'success');
+      }
     } catch (err: any) {
       console.error('[SharePublicTabunganModal] Publish error:', err);
-      onShowToast('Gagal menerbitkan data ke cloud: ' + (err?.message || 'Koneksi error'), 'error');
+      if (!options?.silent) {
+        onShowToast('Gagal menerbitkan data ke cloud: ' + (err?.message || 'Koneksi error'), 'error');
+      }
     } finally {
-      setIsPublishing(false);
+      if (!options?.silent) setIsPublishing(false);
     }
   };
 
@@ -374,6 +381,7 @@ export const SharePublicTabunganModal: React.FC<SharePublicTabunganModalProps> =
                   href={classPublicUrl}
                   target="_blank"
                   rel="noopener noreferrer"
+                  onClick={() => handlePublishToCloud({ silent: true })}
                   className="py-2 px-3 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-1 cursor-pointer"
                   title="Buka pratinjau publik di tab baru"
                 >
