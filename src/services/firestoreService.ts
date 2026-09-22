@@ -47,6 +47,108 @@ function sanitizeForFirestore<T>(data: T): T {
   }
 }
 
+// Quota Exceeded Circuit Breaker
+let _memoryQuotaExceeded = false;
+
+export function isQuotaExceededError(err: unknown): boolean {
+  if (!err) return false;
+  const msg = err instanceof Error ? err.message : String(err);
+  const code = (err as any)?.code || '';
+  return (
+    code === 'resource-exhausted' ||
+    msg.includes('resource-exhausted') ||
+    msg.includes('Quota limit exceeded') ||
+    msg.includes('Quota exceeded')
+  );
+}
+
+export function markQuotaExceeded(reason?: string) {
+  _memoryQuotaExceeded = true;
+  if (typeof window !== 'undefined') {
+    try {
+      sessionStorage.setItem(
+        'smk_firestore_quota_exceeded',
+        JSON.stringify({
+          exceeded: true,
+          timestamp: Date.now(),
+          reason: reason || 'Quota limit exceeded',
+        })
+      );
+      window.dispatchEvent(
+        new CustomEvent('firestore_quota_exceeded', {
+          detail: { reason },
+        })
+      );
+    } catch {}
+  }
+}
+
+export function clearQuotaExceeded() {
+  _memoryQuotaExceeded = false;
+  if (typeof window !== 'undefined') {
+    try {
+      sessionStorage.removeItem('smk_firestore_quota_exceeded');
+      window.dispatchEvent(new CustomEvent('firestore_quota_cleared'));
+    } catch {}
+  }
+}
+
+export function isQuotaExceeded(): boolean {
+  if (_memoryQuotaExceeded) return true;
+  if (typeof window !== 'undefined') {
+    try {
+      const stored = sessionStorage.getItem('smk_firestore_quota_exceeded');
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Date.now() - parsed.timestamp < 12 * 60 * 60 * 1000) {
+          _memoryQuotaExceeded = true;
+          return true;
+        } else {
+          sessionStorage.removeItem('smk_firestore_quota_exceeded');
+        }
+      }
+    } catch {}
+  }
+  return false;
+}
+
+/**
+ * Safe wrapper around setDoc that gracefully catches Quota Exceeded
+ * to prevent crash loops and exponential backoff hangs.
+ */
+async function safeSetDoc(docRef: any, data: any, options: any = { merge: true }): Promise<void> {
+  if (isQuotaExceeded()) {
+    console.warn('[FirestoreService] Cloud write skipped: Daily Firestore write quota exceeded.');
+    return;
+  }
+  try {
+    await setDoc(docRef, data, options);
+  } catch (err) {
+    if (isQuotaExceededError(err)) {
+      markQuotaExceeded(String(err));
+      console.warn('[FirestoreService] Firestore daily quota exceeded! App transitioned to offline mode.');
+      return;
+    }
+    throw err;
+  }
+}
+
+async function safeDeleteDoc(docRef: any): Promise<void> {
+  if (isQuotaExceeded()) {
+    console.warn('[FirestoreService] Cloud delete skipped: Daily Firestore write quota exceeded.');
+    return;
+  }
+  try {
+    await deleteDoc(docRef);
+  } catch (err) {
+    if (isQuotaExceededError(err)) {
+      markQuotaExceeded(String(err));
+      return;
+    }
+    throw err;
+  }
+}
+
 /**
  * Executes write batch operations in safe chunks (max 350 per batch)
  * to strictly prevent the Firestore "A write batch can contain at most 500 operations" crash.
@@ -56,13 +158,26 @@ async function commitBatchOperations(
   chunkSize = 350
 ): Promise<void> {
   if (!operations || operations.length === 0) return;
-  for (let i = 0; i < operations.length; i += chunkSize) {
-    const chunk = operations.slice(i, i + chunkSize);
-    const batch = writeBatch(db);
-    for (const op of chunk) {
-      op(batch);
+  if (isQuotaExceeded()) {
+    console.warn('[FirestoreService] Cloud batch write skipped: Daily Firestore write quota exceeded.');
+    return;
+  }
+  try {
+    for (let i = 0; i < operations.length; i += chunkSize) {
+      const chunk = operations.slice(i, i + chunkSize);
+      const batch = writeBatch(db);
+      for (const op of chunk) {
+        op(batch);
+      }
+      await batch.commit();
     }
-    await batch.commit();
+  } catch (err) {
+    if (isQuotaExceededError(err)) {
+      markQuotaExceeded(String(err));
+      console.warn('[FirestoreService] Firestore batch quota exceeded! Switched to offline mode.');
+      return;
+    }
+    throw err;
   }
 }
 
@@ -85,6 +200,10 @@ let workspaceDebounceTimers: Record<string, any> = {};
 let pendingWorkspacePayloads: Record<string, any> = {};
 
 export const FirestoreService = {
+  isQuotaExceeded,
+  markQuotaExceeded,
+  clearQuotaExceeded,
+
   /**
    * Synchronously retrieve cached workspace data for 0ms instant app startup
    */
@@ -117,7 +236,7 @@ export const FirestoreService = {
   queueWorkspaceSync(uid: string, partial: Partial<UserWorkspaceData>): void {
     if (!uid) return;
 
-    // 1. Merge into memory cache and localStorage immediately
+    // 1. Merge into memory cache and localStorage immediately (0ms)
     const cacheKey = `smk_ws_cache_${uid}`;
     try {
       const existing = this.getCachedUserData(uid) || {
@@ -144,6 +263,11 @@ export const FirestoreService = {
       console.warn('[FirestoreService] Cache update warning:', e);
     }
 
+    // If quota is already exceeded, don't attempt cloud write; local state is preserved!
+    if (isQuotaExceeded()) {
+      return;
+    }
+
     // 2. Accumulate partial payloads for Firestore consolidated workspace doc
     if (!pendingWorkspacePayloads[uid]) {
       pendingWorkspacePayloads[uid] = {};
@@ -155,7 +279,7 @@ export const FirestoreService = {
       updatedAt: new Date().toISOString(),
     };
 
-    // 3. Debounce the cloud write (200ms) to coalesce rapid consecutive writes
+    // 3. Debounce the cloud write (2500ms) to coalesce rapid consecutive writes
     if (workspaceDebounceTimers[uid]) {
       clearTimeout(workspaceDebounceTimers[uid]);
     }
@@ -165,22 +289,22 @@ export const FirestoreService = {
       delete pendingWorkspacePayloads[uid];
       delete workspaceDebounceTimers[uid];
 
-      if (!payload) return;
+      if (!payload || isQuotaExceeded()) return;
       try {
         const wsRef = doc(db, 'teacher_workspaces', uid);
-        await setDoc(wsRef, sanitizeForFirestore(payload), { merge: true });
+        await safeSetDoc(wsRef, sanitizeForFirestore(payload), { merge: true });
         console.log(`[FirestoreService] Debounced workspace write completed for ${uid}`);
       } catch (err) {
         console.warn('[FirestoreService] Debounced workspace write error:', err);
       }
-    }, 200);
+    }, 2500);
   },
 
   /**
    * Immediately flush any pending debounced workspace write
    */
   async flushWorkspaceSync(uid: string): Promise<void> {
-    if (!uid || !pendingWorkspacePayloads[uid]) return;
+    if (!uid || !pendingWorkspacePayloads[uid] || isQuotaExceeded()) return;
     if (workspaceDebounceTimers[uid]) {
       clearTimeout(workspaceDebounceTimers[uid]);
       delete workspaceDebounceTimers[uid];
@@ -189,7 +313,7 @@ export const FirestoreService = {
     delete pendingWorkspacePayloads[uid];
     try {
       const wsRef = doc(db, 'teacher_workspaces', uid);
-      await setDoc(wsRef, sanitizeForFirestore(payload), { merge: true });
+      await safeSetDoc(wsRef, sanitizeForFirestore(payload), { merge: true });
     } catch (err) {
       console.warn('[FirestoreService] Flush workspace write error:', err);
     }
@@ -555,102 +679,106 @@ export const FirestoreService = {
    * Save or update Teacher Profile
    */
   async saveTeacherProfile(uid: string, profile: TeacherProfile): Promise<void> {
-    const docRef = doc(db, 'users', uid, 'profile', 'teacher');
-    const writePromise = setDoc(docRef, sanitizeForFirestore(profile), { merge: true });
     this.queueWorkspaceSync(uid, { teacher: profile });
-    await writePromise;
+    if (isQuotaExceeded()) return;
+    const docRef = doc(db, 'users', uid, 'profile', 'teacher');
+    await safeSetDoc(docRef, sanitizeForFirestore(profile), { merge: true });
   },
 
   /**
    * Save or update a ClassRoom
    */
   async saveClass(uid: string, classItem: ClassRoom, allClasses?: ClassRoom[]): Promise<void> {
+    const classesList = allClasses || Storage.getClasses();
+    this.queueWorkspaceSync(uid, { classes: classesList });
+    if (isQuotaExceeded()) return;
     const docRef = doc(db, 'users', uid, 'classes', classItem.id);
-    const writePromise = setDoc(
+    await safeSetDoc(
       docRef,
       sanitizeForFirestore({ ...classItem, teacherUid: uid }),
       { merge: true }
     );
-    const classesList = allClasses || Storage.getClasses();
-    this.queueWorkspaceSync(uid, { classes: classesList });
-    await writePromise;
   },
 
   /**
    * Delete a ClassRoom and its related students, sessions, and grades
    */
   async deleteClass(uid: string, classId: string): Promise<void> {
-    // 1. Delete class document
-    await deleteDoc(doc(db, 'users', uid, 'classes', classId));
+    const classesList = Storage.getClasses().filter((c) => c.id !== classId);
+    const studentsList = Storage.getAllStudents().filter((s) => s.classId !== classId);
+    const sessionsList = Storage.getAllSessions().filter((s) => s.classId !== classId);
+    const gradesList = Storage.getAllGrades().filter((g) => g.classId !== classId);
 
-    // 2. Cascade delete students of this class
-    const studentsRef = collection(db, 'users', uid, 'students');
-    const studentsSnap = await getDocs(
-      query(studentsRef, where('classId', '==', classId))
-    );
-    const batch = writeBatch(db);
-    studentsSnap.docs.forEach((d) => batch.delete(d.ref));
-
-    // 3. Cascade delete sessions of this class
-    const sessionsRef = collection(db, 'users', uid, 'attendance_sessions');
-    const sessionsSnap = await getDocs(
-      query(sessionsRef, where('classId', '==', classId))
-    );
-    sessionsSnap.docs.forEach((d) => batch.delete(d.ref));
-
-    // 4. Cascade delete grades of this class
-    const gradesRef = collection(db, 'users', uid, 'grades');
-    const gradesSnap = await getDocs(
-      query(gradesRef, where('classId', '==', classId))
-    );
-    gradesSnap.docs.forEach((d) => batch.delete(d.ref));
-
-    await batch.commit();
-
-    // Update workspace sync
+    // Update workspace sync & local cache immediately
     this.queueWorkspaceSync(uid, {
-      classes: Storage.getClasses().filter((c) => c.id !== classId),
-      students: Storage.getAllStudents().filter((s) => s.classId !== classId),
-      sessions: Storage.getAllSessions().filter((s) => s.classId !== classId),
-      grades: Storage.getAllGrades().filter((g) => g.classId !== classId),
+      classes: classesList,
+      students: studentsList,
+      sessions: sessionsList,
+      grades: gradesList,
     });
+
+    if (isQuotaExceeded()) return;
+
+    // 1. Delete class document safely
+    await safeDeleteDoc(doc(db, 'users', uid, 'classes', classId));
+
+    // 2. Update consolidated workspace
+    const wsRef = doc(db, 'teacher_workspaces', uid);
+    await safeSetDoc(
+      wsRef,
+      sanitizeForFirestore({
+        teacherUid: uid,
+        classes: classesList,
+        students: studentsList,
+        sessions: sessionsList,
+        grades: gradesList,
+        updatedAt: new Date().toISOString(),
+      }),
+      { merge: true }
+    );
   },
 
   /**
    * Save or update a Student
    */
   async saveStudent(uid: string, student: Student, allStudents?: Student[]): Promise<void> {
+    const studentsList = allStudents || Storage.getAllStudents();
+    this.queueWorkspaceSync(uid, { students: studentsList });
+    if (isQuotaExceeded()) return;
     const docRef = doc(db, 'users', uid, 'students', student.id);
-    const writePromise = setDoc(
+    await safeSetDoc(
       docRef,
       sanitizeForFirestore({ ...student, teacherUid: uid }),
       { merge: true }
     );
-    const studentsList = allStudents || Storage.getAllStudents();
-    this.queueWorkspaceSync(uid, { students: studentsList });
-    await writePromise;
   },
 
   /**
    * Delete a Student and their grade record
    */
   async deleteStudent(uid: string, studentId: string): Promise<void> {
-    await deleteDoc(doc(db, 'users', uid, 'students', studentId));
-
-    const gradesRef = collection(db, 'users', uid, 'grades');
-    const gradesSnap = await getDocs(
-      query(gradesRef, where('studentId', '==', studentId))
-    );
-    if (!gradesSnap.empty) {
-      const batch = writeBatch(db);
-      gradesSnap.docs.forEach((d) => batch.delete(d.ref));
-      await batch.commit();
-    }
+    const studentsList = Storage.getAllStudents().filter((s) => s.id !== studentId);
+    const gradesList = Storage.getAllGrades().filter((g) => g.studentId !== studentId);
 
     this.queueWorkspaceSync(uid, {
-      students: Storage.getAllStudents().filter((s) => s.id !== studentId),
-      grades: Storage.getAllGrades().filter((g) => g.studentId !== studentId),
+      students: studentsList,
+      grades: gradesList,
     });
+
+    if (isQuotaExceeded()) return;
+
+    await safeDeleteDoc(doc(db, 'users', uid, 'students', studentId));
+    const wsRef = doc(db, 'teacher_workspaces', uid);
+    await safeSetDoc(
+      wsRef,
+      sanitizeForFirestore({
+        teacherUid: uid,
+        students: studentsList,
+        grades: gradesList,
+        updatedAt: new Date().toISOString(),
+      }),
+      { merge: true }
+    );
   },
 
   /**
@@ -718,20 +846,14 @@ export const FirestoreService = {
     session: AttendanceSession,
     allSessions?: AttendanceSession[]
   ): Promise<void> {
-    const docRef = doc(db, 'users', uid, 'attendance_sessions', session.id);
-    const subColPromise = setDoc(
-      docRef,
-      sanitizeForFirestore({ ...session, teacherUid: uid }),
-      { merge: true }
-    ).catch((e) => console.warn('[FirestoreService] subCol saveAttendanceSession notice:', e));
-
-    // Queue debounced unified workspace snapshot update (0ms local cache + background consolidator)
     const sessionsList = allSessions || Storage.getAllSessions();
     this.queueWorkspaceSync(uid, { sessions: sessionsList });
 
-    // Write directly to unified workspace doc concurrently for ultra-fast sync
+    if (isQuotaExceeded()) return;
+
+    // Write directly to unified workspace doc (1 single write!)
     const wsRef = doc(db, 'teacher_workspaces', uid);
-    const wsPromise = setDoc(
+    await safeSetDoc(
       wsRef,
       sanitizeForFirestore({
         teacherUid: uid,
@@ -739,9 +861,7 @@ export const FirestoreService = {
         updatedAt: new Date().toISOString(),
       }),
       { merge: true }
-    ).catch((e) => console.warn('[FirestoreService] ws saveAttendanceSession notice:', e));
-
-    await Promise.all([subColPromise, wsPromise]);
+    );
   },
 
   /**
@@ -754,27 +874,13 @@ export const FirestoreService = {
   ): Promise<void> {
     if (!sessions || sessions.length === 0) return;
 
-    const ops: Array<(batch: ReturnType<typeof writeBatch>) => void> = [];
-    sessions.forEach((ses) => {
-      const docRef = doc(db, 'users', uid, 'attendance_sessions', ses.id);
-      ops.push((batch) => {
-        batch.set(
-          docRef,
-          sanitizeForFirestore({ ...ses, teacherUid: uid }),
-          { merge: true }
-        );
-      });
-    });
-
-    const batchPromise = commitBatchOperations(ops, 350).catch((e) => {
-      console.warn('[FirestoreService] saveAttendanceSessionsBatch notice:', e);
-    });
-
-    // Concurrently write to consolidated workspace document
     const sessionsList = allSessions || Storage.getAllSessions();
     this.queueWorkspaceSync(uid, { sessions: sessionsList });
+
+    if (isQuotaExceeded()) return;
+
     const wsRef = doc(db, 'teacher_workspaces', uid);
-    const wsPromise = setDoc(
+    await safeSetDoc(
       wsRef,
       sanitizeForFirestore({
         teacherUid: uid,
@@ -782,44 +888,7 @@ export const FirestoreService = {
         updatedAt: new Date().toISOString(),
       }),
       { merge: true }
-    ).catch((e) => console.warn('[FirestoreService] saveAttendanceSessionsBatch ws notice:', e));
-
-    // Auto-update public_absensi snapshots for each affected class in background
-    try {
-      const classIds = Array.from(new Set(sessionsList.map((s) => s.classId).filter(Boolean)));
-      for (const cId of classIds) {
-        const clsSessions = sessionsList.filter((s) => s.classId === cId);
-        const sId = this.getPublicAbsensiShareId(uid, cId);
-        const cleanC = cId.replace(/[^a-zA-Z0-9_-]/g, '');
-        const cleanCNoHyphen = cId.replace(/[^a-zA-Z0-9]/g, '');
-        const absPayload = sanitizeForFirestore({
-          shareId: sId,
-          classId: cId,
-          sessions: clsSessions,
-          updatedAt: new Date().toISOString(),
-        });
-        setDoc(doc(db, 'public_absensi', sId), absPayload, { merge: true }).catch(() => {});
-        if (cleanC && sId !== `abs_${cleanC}`) {
-          setDoc(doc(db, 'public_absensi', `abs_${cleanC}`), absPayload, { merge: true }).catch(() => {});
-        }
-        if (cleanCNoHyphen && cleanCNoHyphen !== cleanC && sId !== `abs_${cleanCNoHyphen}`) {
-          setDoc(doc(db, 'public_absensi', `abs_${cleanCNoHyphen}`), absPayload, { merge: true }).catch(() => {});
-        }
-        if (typeof window !== 'undefined') {
-          try {
-            localStorage.setItem(`cache_pub_abs_${sId}`, JSON.stringify(absPayload));
-            if (cleanC) localStorage.setItem(`cache_pub_abs_abs_${cleanC}`, JSON.stringify(absPayload));
-            if (cleanCNoHyphen) localStorage.setItem(`cache_pub_abs_abs_${cleanCNoHyphen}`, JSON.stringify(absPayload));
-          } catch {}
-        }
-      }
-    } catch {}
-
-    // Cap network wait to max 1200ms so UI never hangs or becomes unresponsive
-    await Promise.race([
-      Promise.all([batchPromise, wsPromise]),
-      new Promise((resolve) => setTimeout(resolve, 1200)),
-    ]);
+    );
   },
 
   /**
@@ -830,32 +899,38 @@ export const FirestoreService = {
     sessionId: string,
     remainingSessions?: AttendanceSession[]
   ): Promise<void> {
-    const docRef = doc(db, 'users', uid, 'attendance_sessions', sessionId);
-    const deletePromise = deleteDoc(docRef).catch((e) => console.warn('[FirestoreService] deleteAttendanceSession notice:', e));
-
     const sessionsList =
       remainingSessions || Storage.getAllSessions().filter((s) => s.id !== sessionId);
     this.queueWorkspaceSync(uid, { sessions: sessionsList });
 
-    await deletePromise;
+    if (isQuotaExceeded()) return;
+
+    const docRef = doc(db, 'users', uid, 'attendance_sessions', sessionId);
+    await safeDeleteDoc(docRef);
+
+    const wsRef = doc(db, 'teacher_workspaces', uid);
+    await safeSetDoc(
+      wsRef,
+      sanitizeForFirestore({
+        teacherUid: uid,
+        sessions: sessionsList,
+        updatedAt: new Date().toISOString(),
+      }),
+      { merge: true }
+    );
   },
 
   /**
    * Save or update Student Grade
    */
   async saveGrade(uid: string, grade: StudentGrade, allGrades?: StudentGrade[]): Promise<void> {
-    const docRef = doc(db, 'users', uid, 'grades', grade.id);
-    const subColPromise = setDoc(
-      docRef,
-      sanitizeForFirestore({ ...grade, teacherUid: uid }),
-      { merge: true }
-    ).catch((e) => console.warn('[FirestoreService] saveGrade notice:', e));
-
     const gradesList = allGrades || Storage.getAllGrades();
     this.queueWorkspaceSync(uid, { grades: gradesList });
 
+    if (isQuotaExceeded()) return;
+
     const wsRef = doc(db, 'teacher_workspaces', uid);
-    const wsPromise = setDoc(
+    await safeSetDoc(
       wsRef,
       sanitizeForFirestore({
         teacherUid: uid,
@@ -863,15 +938,13 @@ export const FirestoreService = {
         updatedAt: new Date().toISOString(),
       }),
       { merge: true }
-    ).catch((e) => console.warn('[FirestoreService] saveGrade ws notice:', e));
-
-    await Promise.all([subColPromise, wsPromise]);
+    );
   },
 
   /**
    * Save Grades in Batch to Cloud Firestore
-   * Highly optimized: performs single-document atomic write to unified teacher_workspaces (<100ms)
-   * while asynchronously persisting to subcollection in the background with batch chunking.
+   * Highly optimized: performs single-document atomic write to unified teacher_workspaces (1 single write!)
+   * without burning quota through dozens of individual subcollection writes.
    */
   async saveGradesBatch(
     uid: string,
@@ -883,10 +956,12 @@ export const FirestoreService = {
     if (!grades || grades.length === 0) return;
     const gradesList = allGrades || Storage.getAllGrades();
 
-    // 1. Instant local memory cache update
+    // 1. Instant local memory cache update (0ms)
     this.queueWorkspaceSync(uid, { grades: gradesList });
 
-    // 2. High-speed atomic write to consolidated workspace document
+    if (isQuotaExceeded()) return;
+
+    // 2. High-speed single-document atomic write to consolidated workspace document
     const wsRef = doc(db, 'teacher_workspaces', uid);
     const wsPayload: Record<string, any> = {
       teacherUid: uid,
@@ -896,84 +971,7 @@ export const FirestoreService = {
     if (gradeHeaders) {
       wsPayload[`gradeHeaders_${gradeHeaders.classId}`] = gradeHeaders.headers;
     }
-    const wsPromise = setDoc(wsRef, sanitizeForFirestore(wsPayload), { merge: true })
-      .catch((err) => {
-        console.warn('[FirestoreService] Workspace grades write notice:', err?.message || err);
-      });
-
-    // 3. Concurrently sync subcollections with chunking protection
-    const ops: Array<(batch: ReturnType<typeof writeBatch>) => void> = [];
-    grades.forEach((grade, idx) => {
-      const gradeId = grade.id || `grd-${grade.studentId || idx}`;
-      const docRef = doc(db, 'users', uid, 'grades', gradeId);
-      ops.push((batch) => {
-        batch.set(
-          docRef,
-          sanitizeForFirestore({ ...grade, id: gradeId, teacherUid: uid }),
-          { merge: true }
-        );
-      });
-    });
-
-    if (gradeHeaders) {
-      const hRef = doc(db, 'users', uid, 'grade_headers', gradeHeaders.classId);
-      ops.push((batch) => {
-        batch.set(
-          hRef,
-          sanitizeForFirestore({
-            classId: gradeHeaders.classId,
-            headers: gradeHeaders.headers,
-            updatedAt: new Date().toISOString(),
-            teacherUid: uid,
-          }),
-          { merge: true }
-        );
-      });
-    }
-
-    // Fire subcollection updates in background so hundreds of subcollection writes never block the UI
-    commitBatchOperations(ops, 350).catch((e) => {
-      console.warn('[FirestoreService] Background subcollection batch notice:', e?.message || e);
-    });
-
-    // Auto-update public_nilai snapshot for the affected class in background
-    if (gradeHeaders?.classId) {
-      try {
-        const cId = gradeHeaders.classId;
-        const targetGrades = (allGrades || grades).filter((g) => g.classId === cId);
-        const sId = this.getPublicNilaiShareId(uid, cId);
-        const cleanC = cId.replace(/[^a-zA-Z0-9_-]/g, '');
-        const cleanCNoHyphen = cId.replace(/[^a-zA-Z0-9]/g, '');
-        const pubPayload = sanitizeForFirestore({
-          shareId: sId,
-          classId: cId,
-          grades: targetGrades,
-          columnHeaders: gradeHeaders.headers,
-          updatedAt: new Date().toISOString(),
-        });
-        setDoc(doc(db, 'public_nilai', sId), pubPayload, { merge: true }).catch(() => {});
-        if (cleanC && sId !== `nil_${cleanC}`) {
-          setDoc(doc(db, 'public_nilai', `nil_${cleanC}`), pubPayload, { merge: true }).catch(() => {});
-        }
-        if (cleanCNoHyphen && cleanCNoHyphen !== cleanC && sId !== `nil_${cleanCNoHyphen}`) {
-          setDoc(doc(db, 'public_nilai', `nil_${cleanCNoHyphen}`), pubPayload, { merge: true }).catch(() => {});
-        }
-        if (typeof window !== 'undefined') {
-          try {
-            localStorage.setItem(`cache_pub_nil_${sId}`, JSON.stringify(pubPayload));
-            if (cleanC) localStorage.setItem(`cache_pub_nil_nil_${cleanC}`, JSON.stringify(pubPayload));
-            if (cleanCNoHyphen) localStorage.setItem(`cache_pub_nil_nil_${cleanCNoHyphen}`, JSON.stringify(pubPayload));
-          } catch {}
-        }
-      } catch {}
-    }
-
-    // Fast non-blocking completion: Wait for workspace document with a maximum 1200ms timeout
-    // Strictly prevents UI freezing, spinners sticking, or "not responding" errors
-    await Promise.race([
-      wsPromise,
-      new Promise((resolve) => setTimeout(resolve, 1200)),
-    ]);
+    await safeSetDoc(wsRef, sanitizeForFirestore(wsPayload), { merge: true });
   },
 
   /**
@@ -984,29 +982,17 @@ export const FirestoreService = {
     classId: string,
     headers: GradeColumnHeader[]
   ): Promise<void> {
-    const docRef = doc(db, 'users', uid, 'grade_headers', classId);
+    if (!uid) return;
+    if (isQuotaExceeded()) return;
     const wsRef = doc(db, 'teacher_workspaces', uid);
-
-    await Promise.all([
-      setDoc(
-        docRef,
-        sanitizeForFirestore({
-          classId,
-          headers,
-          updatedAt: new Date().toISOString(),
-          teacherUid: uid,
-        }),
-        { merge: true }
-      ),
-      setDoc(
-        wsRef,
-        sanitizeForFirestore({
-          [`gradeHeaders_${classId}`]: headers,
-          updatedAt: new Date().toISOString(),
-        }),
-        { merge: true }
-      ).catch(() => {}),
-    ]);
+    await safeSetDoc(
+      wsRef,
+      sanitizeForFirestore({
+        [`gradeHeaders_${classId}`]: headers,
+        updatedAt: new Date().toISOString(),
+      }),
+      { merge: true }
+    );
   },
 
   /**
@@ -1017,6 +1003,18 @@ export const FirestoreService = {
     classId: string
   ): Promise<GradeColumnHeader[] | null> {
     try {
+      const cached = this.getCachedUserData(uid);
+      if (cached && (cached as any)[`gradeHeaders_${classId}`]) {
+        return (cached as any)[`gradeHeaders_${classId}`];
+      }
+      const wsRef = doc(db, 'teacher_workspaces', uid);
+      const wsSnap = await getDoc(wsRef);
+      if (wsSnap.exists()) {
+        const wsData = wsSnap.data();
+        if (wsData && wsData[`gradeHeaders_${classId}`]) {
+          return wsData[`gradeHeaders_${classId}`];
+        }
+      }
       const docRef = doc(db, 'users', uid, 'grade_headers', classId);
       const snap = await getDoc(docRef);
       if (snap.exists()) {
@@ -1040,15 +1038,6 @@ export const FirestoreService = {
     agenda: TeachingAgenda,
     allAgendas?: TeachingAgenda[]
   ): Promise<void> {
-    // 1. Subcollection write
-    const docRef = doc(db, 'users', uid, 'teaching_agendas', agenda.id);
-    const subColPromise = setDoc(
-      docRef,
-      sanitizeForFirestore({ ...agenda, teacherUid: uid }),
-      { merge: true }
-    );
-
-    // 2. Determine agendas list for consolidated workspace snapshot
     let updatedList: TeachingAgenda[];
     if (allAgendas && allAgendas.length > 0) {
       updatedList = allAgendas;
@@ -1064,7 +1053,18 @@ export const FirestoreService = {
     }
 
     this.queueWorkspaceSync(uid, { agendas: updatedList });
-    await subColPromise;
+    if (isQuotaExceeded()) return;
+
+    const wsRef = doc(db, 'teacher_workspaces', uid);
+    await safeSetDoc(
+      wsRef,
+      sanitizeForFirestore({
+        teacherUid: uid,
+        agendas: updatedList,
+        updatedAt: new Date().toISOString(),
+      }),
+      { merge: true }
+    );
   },
 
   /**
@@ -1075,14 +1075,25 @@ export const FirestoreService = {
     agendaId: string,
     remainingAgendas?: TeachingAgenda[]
   ): Promise<void> {
-    const docRef = doc(db, 'users', uid, 'teaching_agendas', agendaId);
-    const subColPromise = deleteDoc(docRef);
-
     const updatedList =
       remainingAgendas || Storage.getAllAgendas().filter((a) => a.id !== agendaId);
     this.queueWorkspaceSync(uid, { agendas: updatedList });
 
-    await subColPromise;
+    if (isQuotaExceeded()) return;
+
+    const docRef = doc(db, 'users', uid, 'teaching_agendas', agendaId);
+    await safeDeleteDoc(docRef);
+
+    const wsRef = doc(db, 'teacher_workspaces', uid);
+    await safeSetDoc(
+      wsRef,
+      sanitizeForFirestore({
+        teacherUid: uid,
+        agendas: updatedList,
+        updatedAt: new Date().toISOString(),
+      }),
+      { merge: true }
+    );
   },
 
   /**
@@ -1129,36 +1140,21 @@ export const FirestoreService = {
     if (!uid) return;
     const targetSavings = allSavings || savings;
 
-    // 1. Debounced unified workspace document & instant local cache update
+    // 1. Debounced unified workspace document & instant local cache update (0ms)
     this.queueWorkspaceSync(uid, { savings: targetSavings });
 
-    // 2. Fast Parallel Real-Time sync for all active public_tabungan snapshots
-    const publicSyncPromises: Promise<any>[] = [];
-    try {
-      const classIds = Array.from(new Set(targetSavings.map((s) => s.classId)));
-      for (const cId of classIds) {
-        if (!cId) continue;
-        const clsSavings = targetSavings.filter((s) => s.classId === cId);
-        const updatePayload = sanitizeForFirestore({
-          savings: clsSavings,
-          updatedAt: new Date().toISOString(),
-        });
+    if (isQuotaExceeded()) return;
 
-        // 2a. Update primary deterministic share ID
-        const sId = FirestoreService.getPublicTabunganShareId(uid, cId);
-        const pRef = doc(db, 'public_tabungan', sId);
-        publicSyncPromises.push(setDoc(pRef, updatePayload, { merge: true }).catch(() => {}));
-
-        // 2b. Update class alias mirror (tb_classId) for robust instant link access
-        const cleanCId = cId.replace(/[^a-zA-Z0-9_-]/g, '');
-        if (cleanCId && sId !== `tb_${cleanCId}`) {
-          const aliasRef = doc(db, 'public_tabungan', `tb_${cleanCId}`);
-          publicSyncPromises.push(setDoc(aliasRef, updatePayload, { merge: true }).catch(() => {}));
-        }
-      }
-    } catch {}
-
-    await Promise.all(publicSyncPromises);
+    const wsRef = doc(db, 'teacher_workspaces', uid);
+    await safeSetDoc(
+      wsRef,
+      sanitizeForFirestore({
+        teacherUid: uid,
+        savings: targetSavings,
+        updatedAt: new Date().toISOString(),
+      }),
+      { merge: true }
+    );
   },
 
   /**
@@ -1179,8 +1175,16 @@ export const FirestoreService = {
   ): Promise<void> {
     if (!uid) return;
 
+    // Update local cache
+    try {
+      const cacheKey = `smk_ws_cache_${uid}`;
+      localStorage.setItem(cacheKey, JSON.stringify(fullData));
+    } catch {}
+
+    if (isQuotaExceeded()) return;
+
     const wsRef = doc(db, 'teacher_workspaces', uid);
-    await setDoc(
+    await safeSetDoc(
       wsRef,
       sanitizeForFirestore({
         teacherUid: uid,
@@ -1196,12 +1200,6 @@ export const FirestoreService = {
       }),
       { merge: true }
     );
-
-    // Update local cache
-    try {
-      const cacheKey = `smk_ws_cache_${uid}`;
-      localStorage.setItem(cacheKey, JSON.stringify(fullData));
-    } catch {}
   },
 
   /**
@@ -1220,26 +1218,13 @@ export const FirestoreService = {
     if (!data.shareId) {
       throw new Error('ID tautan publik tabungan tidak valid.');
     }
-    const publicRef = doc(db, 'public_tabungan', data.shareId);
     const sanitized = sanitizeForFirestore({
       ...data,
       updatedAt: new Date().toISOString(),
     });
 
-    const writes: Promise<any>[] = [setDoc(publicRef, sanitized, { merge: true })];
-
-    // Mirror to clean class aliases for zero-friction sharing and instant lookup
     const cleanClass = data.classId ? data.classId.replace(/[^a-zA-Z0-9_-]/g, '') : '';
     const cleanClassNoHyphen = data.classId ? data.classId.replace(/[^a-zA-Z0-9]/g, '') : '';
-
-    if (cleanClass && data.shareId !== `tb_${cleanClass}`) {
-      const aliasRef = doc(db, 'public_tabungan', `tb_${cleanClass}`);
-      writes.push(setDoc(aliasRef, sanitized, { merge: true }).catch(() => {}));
-    }
-    if (cleanClassNoHyphen && cleanClassNoHyphen !== cleanClass && data.shareId !== `tb_${cleanClassNoHyphen}`) {
-      const aliasNoHyphenRef = doc(db, 'public_tabungan', `tb_${cleanClassNoHyphen}`);
-      writes.push(setDoc(aliasNoHyphenRef, sanitized, { merge: true }).catch(() => {}));
-    }
 
     // Instant local cache and broadcast channel for immediate zero-latency preview
     if (typeof window !== 'undefined') {
@@ -1251,7 +1236,10 @@ export const FirestoreService = {
       } catch {}
     }
 
-    await Promise.all(writes);
+    if (isQuotaExceeded()) return;
+
+    const publicRef = doc(db, 'public_tabungan', data.shareId);
+    await safeSetDoc(publicRef, sanitized, { merge: true });
   },
 
   /**
@@ -1383,7 +1371,11 @@ export const FirestoreService = {
         }
       },
       (error) => {
-        console.error('[FirestoreService] subscribePublicTabungan error:', error);
+        if (isQuotaExceededError(error)) {
+          markQuotaExceeded();
+        } else {
+          console.error('[FirestoreService] subscribePublicTabungan error:', error);
+        }
         if (onError) onError(error);
       }
     );
@@ -1412,28 +1404,15 @@ export const FirestoreService = {
     if (!data.shareId) {
       throw new Error('ID tautan publik absensi tidak valid.');
     }
-    const publicRef = doc(db, 'public_absensi', data.shareId);
     const sanitized = sanitizeForFirestore({
       ...data,
       updatedAt: new Date().toISOString(),
     });
 
-    const writes: Promise<any>[] = [setDoc(publicRef, sanitized, { merge: true })];
-
-    // Mirror to clean class aliases for zero-friction sharing and instant lookup
     const cleanClass = data.classId ? data.classId.replace(/[^a-zA-Z0-9_-]/g, '') : '';
     const cleanClassNoHyphen = data.classId ? data.classId.replace(/[^a-zA-Z0-9]/g, '') : '';
 
-    if (cleanClass && data.shareId !== `abs_${cleanClass}`) {
-      const aliasRef = doc(db, 'public_absensi', `abs_${cleanClass}`);
-      writes.push(setDoc(aliasRef, sanitized, { merge: true }).catch(() => {}));
-    }
-    if (cleanClassNoHyphen && cleanClassNoHyphen !== cleanClass && data.shareId !== `abs_${cleanClassNoHyphen}`) {
-      const aliasNoHyphenRef = doc(db, 'public_absensi', `abs_${cleanClassNoHyphen}`);
-      writes.push(setDoc(aliasNoHyphenRef, sanitized, { merge: true }).catch(() => {}));
-    }
-
-    // Instant local cache and broadcast channel for immediate zero-latency preview
+    // Instant local cache and broadcast channel for immediate zero-latency preview (0ms)
     if (typeof window !== 'undefined') {
       broadcastPreviewUpdate('absensi', data.shareId, data.classId, sanitized);
       try {
@@ -1443,7 +1422,10 @@ export const FirestoreService = {
       } catch {}
     }
 
-    await Promise.all(writes);
+    if (isQuotaExceeded()) return;
+
+    const publicRef = doc(db, 'public_absensi', data.shareId);
+    await safeSetDoc(publicRef, sanitized, { merge: true });
   },
 
   /**
@@ -1575,7 +1557,11 @@ export const FirestoreService = {
         }
       },
       (error) => {
-        console.error('[FirestoreService] subscribePublicAbsensi error:', error);
+        if (isQuotaExceededError(error)) {
+          markQuotaExceeded();
+        } else {
+          console.error('[FirestoreService] subscribePublicAbsensi error:', error);
+        }
         if (onError) onError(error);
       }
     );
@@ -1604,7 +1590,6 @@ export const FirestoreService = {
     if (!data.shareId) {
       throw new Error('ID tautan publik nilai tidak valid.');
     }
-    const publicRef = doc(db, 'public_nilai', data.shareId);
 
     // Normalize monthly grades if present so formatif 1..8 and sumatifs are always populated
     const normalizedGrades = (data.grades || []).map((g) => {
@@ -1635,20 +1620,8 @@ export const FirestoreService = {
       updatedAt: new Date().toISOString(),
     });
 
-    const writes: Promise<any>[] = [setDoc(publicRef, sanitized, { merge: true })];
-
-    // Mirror to clean class aliases for zero-friction sharing and instant lookup
     const cleanClass = data.classId ? data.classId.replace(/[^a-zA-Z0-9_-]/g, '') : '';
     const cleanClassNoHyphen = data.classId ? data.classId.replace(/[^a-zA-Z0-9]/g, '') : '';
-
-    if (cleanClass && data.shareId !== `nil_${cleanClass}`) {
-      const aliasRef = doc(db, 'public_nilai', `nil_${cleanClass}`);
-      writes.push(setDoc(aliasRef, sanitized, { merge: true }).catch(() => {}));
-    }
-    if (cleanClassNoHyphen && cleanClassNoHyphen !== cleanClass && data.shareId !== `nil_${cleanClassNoHyphen}`) {
-      const aliasNoHyphenRef = doc(db, 'public_nilai', `nil_${cleanClassNoHyphen}`);
-      writes.push(setDoc(aliasNoHyphenRef, sanitized, { merge: true }).catch(() => {}));
-    }
 
     // Instant local cache and broadcast channel for immediate zero-latency preview
     if (typeof window !== 'undefined') {
@@ -1660,7 +1633,10 @@ export const FirestoreService = {
       } catch {}
     }
 
-    await Promise.all(writes);
+    if (isQuotaExceeded()) return;
+
+    const publicRef = doc(db, 'public_nilai', data.shareId);
+    await safeSetDoc(publicRef, sanitized, { merge: true });
   },
 
   /**
@@ -1792,7 +1768,11 @@ export const FirestoreService = {
         }
       },
       (error) => {
-        console.error('[FirestoreService] subscribePublicNilai error:', error);
+        if (isQuotaExceededError(error)) {
+          markQuotaExceeded();
+        } else {
+          console.error('[FirestoreService] subscribePublicNilai error:', error);
+        }
         if (onError) onError(error);
       }
     );
