@@ -8,6 +8,7 @@ import {
   GradeColumnHeader,
 } from '../types';
 import { getDefaultGradeHeaders } from './gradeHeaders';
+import { GradualSyncManager } from '../services/gradualSyncManager';
 
 const STORAGE_KEYS = {
   TEACHER: 'absensi_teacher_profile',
@@ -289,6 +290,7 @@ export const Storage = {
 
   setTeacher(teacher: TeacherProfile): void {
     localStorage.setItem(STORAGE_KEYS.TEACHER, JSON.stringify(teacher));
+    GradualSyncManager.markLocalChange('teacher');
   },
 
   getClasses(): ClassRoom[] {
@@ -302,6 +304,7 @@ export const Storage = {
 
   setClasses(classes: ClassRoom[]): void {
     localStorage.setItem(STORAGE_KEYS.CLASSES, JSON.stringify(classes));
+    GradualSyncManager.markLocalChange('classes');
   },
 
   getActiveClassId(): string {
@@ -328,6 +331,7 @@ export const Storage = {
 
   setAllStudents(students: Student[]): void {
     localStorage.setItem(STORAGE_KEYS.STUDENTS, JSON.stringify(students));
+    GradualSyncManager.markLocalChange('students');
   },
 
   getStudentsByClass(classId: string): Student[] {
@@ -346,6 +350,7 @@ export const Storage = {
 
   setAllSessions(sessions: AttendanceSession[]): void {
     localStorage.setItem(STORAGE_KEYS.ATTENDANCE, JSON.stringify(sessions));
+    GradualSyncManager.markLocalChange('sessions');
   },
 
   getSessionsByClass(classId: string): AttendanceSession[] {
@@ -379,6 +384,7 @@ export const Storage = {
 
   setAllGrades(grades: StudentGrade[]): void {
     localStorage.setItem(STORAGE_KEYS.GRADES, JSON.stringify(grades));
+    GradualSyncManager.markLocalChange('grades');
   },
 
   getGradesByClass(classId: string): StudentGrade[] {
@@ -411,6 +417,7 @@ export const Storage = {
         `${STORAGE_KEYS.GRADE_HEADERS}_${classId}`,
         JSON.stringify(headers)
       );
+      GradualSyncManager.markLocalChange('gradeHeaders');
     } catch (err) {
       console.error('Failed to save grade headers to localStorage:', err);
     }
@@ -428,6 +435,7 @@ export const Storage = {
 
   setAllAgendas(agendas: TeachingAgenda[]): void {
     localStorage.setItem(STORAGE_KEYS.AGENDAS, JSON.stringify(agendas));
+    GradualSyncManager.markLocalChange('agendas');
   },
 
   getAgendasByClass(classId: string): TeachingAgenda[] {
@@ -446,6 +454,7 @@ export const Storage = {
 
   setAllSavings(savings: import('../types').SavingTransaction[]): void {
     localStorage.setItem(STORAGE_KEYS.SAVINGS, JSON.stringify(savings));
+    GradualSyncManager.markLocalChange('savings');
   },
 
   getSavingsByClass(classId: string): import('../types').SavingTransaction[] {
@@ -463,5 +472,6 @@ export const Storage = {
     localStorage.setItem(STORAGE_KEYS.GRADES, JSON.stringify(DEFAULT_GRADES_CLASS_1));
     localStorage.setItem(STORAGE_KEYS.SAVINGS, JSON.stringify(DEFAULT_SAVINGS_CLASS_1));
     localStorage.removeItem(STORAGE_KEYS.AGENDAS);
+    GradualSyncManager.markLocalChange('reset');
   },
 };

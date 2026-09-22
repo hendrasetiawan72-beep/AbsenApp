@@ -1,5 +1,6 @@
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
+import { isQuotaExceeded, isQuotaExceededError, markQuotaExceeded } from './firestoreService';
 import {
   TeacherProfile,
   ClassRoom,
@@ -71,12 +72,20 @@ export const CloudStorage = {
       return false;
     }
 
+    if (isQuotaExceeded()) {
+      return true; // Already saved to local email cache above
+    }
+
     try {
       const docRef = doc(db, 'teacher_workspaces', teacherUid);
       await setDoc(docRef, payload, { merge: true });
       console.log(`[CloudStorage] Successfully saved workspace for ${email} to Firestore`);
       return true;
     } catch (error) {
+      if (isQuotaExceededError(error)) {
+        markQuotaExceeded(String(error));
+        return true;
+      }
       console.error('[CloudStorage] Error saving workspace to Firestore:', error);
       return false;
     }

@@ -9,6 +9,8 @@ import {
   query,
   where,
   onSnapshot,
+  disableNetwork,
+  enableNetwork,
 } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import {
@@ -23,6 +25,7 @@ import {
 } from '../types';
 import { Storage } from '../utils/storage';
 import { broadcastPreviewUpdate } from './previewSyncChannel';
+import { GradualSyncManager } from './gradualSyncManager';
 
 /**
  * Sanitize object to remove undefined values before sending to Firestore
@@ -50,6 +53,24 @@ function sanitizeForFirestore<T>(data: T): T {
 // Quota Exceeded Circuit Breaker
 let _memoryQuotaExceeded = false;
 
+// Check immediately on module load
+if (typeof window !== 'undefined') {
+  try {
+    const initStored =
+      localStorage.getItem('smk_firestore_quota_exceeded') ||
+      sessionStorage.getItem('smk_firestore_quota_exceeded');
+    if (initStored) {
+      const parsed = JSON.parse(initStored);
+      if (Date.now() - parsed.timestamp < 24 * 60 * 60 * 1000) {
+        _memoryQuotaExceeded = true;
+        try {
+          disableNetwork(db).catch(() => {});
+        } catch {}
+      }
+    }
+  } catch {}
+}
+
 export function isQuotaExceededError(err: unknown): boolean {
   if (!err) return false;
   const msg = err instanceof Error ? err.message : String(err);
@@ -58,7 +79,8 @@ export function isQuotaExceededError(err: unknown): boolean {
     code === 'resource-exhausted' ||
     msg.includes('resource-exhausted') ||
     msg.includes('Quota limit exceeded') ||
-    msg.includes('Quota exceeded')
+    msg.includes('Quota exceeded') ||
+    msg.includes('Free daily write units')
   );
 }
 
@@ -66,14 +88,13 @@ export function markQuotaExceeded(reason?: string) {
   _memoryQuotaExceeded = true;
   if (typeof window !== 'undefined') {
     try {
-      sessionStorage.setItem(
-        'smk_firestore_quota_exceeded',
-        JSON.stringify({
-          exceeded: true,
-          timestamp: Date.now(),
-          reason: reason || 'Quota limit exceeded',
-        })
-      );
+      const payload = JSON.stringify({
+        exceeded: true,
+        timestamp: Date.now(),
+        reason: reason || 'Batas kuota harian Cloud Firestore tercapai',
+      });
+      localStorage.setItem('smk_firestore_quota_exceeded', payload);
+      sessionStorage.setItem('smk_firestore_quota_exceeded', payload);
       window.dispatchEvent(
         new CustomEvent('firestore_quota_exceeded', {
           detail: { reason },
@@ -81,29 +102,42 @@ export function markQuotaExceeded(reason?: string) {
       );
     } catch {}
   }
+  try {
+    disableNetwork(db).catch(() => {});
+  } catch {}
 }
 
 export function clearQuotaExceeded() {
   _memoryQuotaExceeded = false;
   if (typeof window !== 'undefined') {
     try {
+      localStorage.removeItem('smk_firestore_quota_exceeded');
       sessionStorage.removeItem('smk_firestore_quota_exceeded');
       window.dispatchEvent(new CustomEvent('firestore_quota_cleared'));
     } catch {}
   }
+  try {
+    enableNetwork(db).catch(() => {});
+  } catch {}
 }
 
 export function isQuotaExceeded(): boolean {
   if (_memoryQuotaExceeded) return true;
   if (typeof window !== 'undefined') {
     try {
-      const stored = sessionStorage.getItem('smk_firestore_quota_exceeded');
+      const stored =
+        localStorage.getItem('smk_firestore_quota_exceeded') ||
+        sessionStorage.getItem('smk_firestore_quota_exceeded');
       if (stored) {
         const parsed = JSON.parse(stored);
-        if (Date.now() - parsed.timestamp < 12 * 60 * 60 * 1000) {
+        if (Date.now() - parsed.timestamp < 24 * 60 * 60 * 1000) {
           _memoryQuotaExceeded = true;
+          try {
+            disableNetwork(db).catch(() => {});
+          } catch {}
           return true;
         } else {
+          localStorage.removeItem('smk_firestore_quota_exceeded');
           sessionStorage.removeItem('smk_firestore_quota_exceeded');
         }
       }
@@ -118,7 +152,6 @@ export function isQuotaExceeded(): boolean {
  */
 async function safeSetDoc(docRef: any, data: any, options: any = { merge: true }): Promise<void> {
   if (isQuotaExceeded()) {
-    console.warn('[FirestoreService] Cloud write skipped: Daily Firestore write quota exceeded.');
     return;
   }
   try {
@@ -126,7 +159,7 @@ async function safeSetDoc(docRef: any, data: any, options: any = { merge: true }
   } catch (err) {
     if (isQuotaExceededError(err)) {
       markQuotaExceeded(String(err));
-      console.warn('[FirestoreService] Firestore daily quota exceeded! App transitioned to offline mode.');
+      console.warn('[FirestoreService] Firestore daily write quota reached. Switched to offline storage.');
       return;
     }
     throw err;
@@ -135,7 +168,6 @@ async function safeSetDoc(docRef: any, data: any, options: any = { merge: true }
 
 async function safeDeleteDoc(docRef: any): Promise<void> {
   if (isQuotaExceeded()) {
-    console.warn('[FirestoreService] Cloud delete skipped: Daily Firestore write quota exceeded.');
     return;
   }
   try {
@@ -192,6 +224,7 @@ export interface UserWorkspaceData {
   agendas?: TeachingAgenda[];
   savings?: SavingTransaction[];
   isNewUser?: boolean;
+  updatedAt?: string;
 }
 
 // In-memory cache for ultra-fast instant UI rendering
@@ -328,7 +361,38 @@ export const FirestoreService = {
       throw new Error('User UID tidak valid untuk memuat data Firestore.');
     }
 
-    // 0. Check instant memory or localStorage cache first
+    // Connect UID to gradual sync manager
+    GradualSyncManager.setActiveUid(uid);
+
+    // 0. BROWSER STORAGE INTEGRITY SHIELD:
+    // If the browser currently has classes and either has pending unsaved changes
+    // or local data was modified after cloud sync, the browser local storage is THE TRUTH!
+    // Never allow remote data to overwrite local user inputs.
+    const localClasses = Storage.getClasses();
+    const hasPendingChanges = GradualSyncManager.getPendingQueue().length > 0;
+    if (!forceRemote && localClasses.length > 0 && hasPendingChanges) {
+      console.log('[FirestoreService] Local browser has pending changes. Using local browser data and scheduling gradual cloud sync.');
+      const localWorkspace: UserWorkspaceData = {
+        teacher: Storage.getTeacher(),
+        classes: localClasses,
+        activeClassId: Storage.getActiveClassId() || localClasses[0]?.id || '',
+        students: Storage.getAllStudents(),
+        sessions: Storage.getAllSessions(),
+        grades: Storage.getAllGrades(),
+        agendas: Storage.getAllAgendas(),
+        savings: Storage.getAllSavings(),
+        isNewUser: false,
+      };
+      // Keep local cache fresh
+      try {
+        memoryWorkspaceCache[uid] = { data: localWorkspace, timestamp: Date.now() };
+        localStorage.setItem(`smk_ws_cache_${uid}`, JSON.stringify(localWorkspace));
+      } catch {}
+      GradualSyncManager.triggerGradualSync(1000);
+      return localWorkspace;
+    }
+
+    // Check instant memory or localStorage cache
     const cachedData = this.getCachedUserData(uid);
     if (!forceRemote && cachedData && Array.isArray(cachedData.classes) && cachedData.classes.length > 0) {
       // Instant return (0ms) so the UI loads without any blocking wait
@@ -339,6 +403,12 @@ export const FirestoreService = {
           .then((wsSnap) => {
             if (wsSnap.exists()) {
               const wsData = wsSnap.data() as any;
+              // If local browser data was edited after this cloud snapshot, protect local data!
+              if (GradualSyncManager.isLocalNewerThan(wsData?.updatedAt)) {
+                console.log('[FirestoreService] Local data is newer than Cloud workspace. Syncing local to Cloud.');
+                GradualSyncManager.triggerGradualSync(1200);
+                return;
+              }
               if (wsData && Array.isArray(wsData.classes) && wsData.classes.length > 0) {
                 const updated: UserWorkspaceData = {
                   teacher: wsData.teacher || cachedData.teacher,
@@ -382,6 +452,23 @@ export const FirestoreService = {
         if (wsSnap && wsSnap.exists()) {
           const wsData = wsSnap.data() as any;
           if (wsData && Array.isArray(wsData.classes) && wsData.classes.length > 0) {
+            // If local browser data is newer than Cloud document, preserve local browser data!
+            if (wsData.updatedAt && GradualSyncManager.isLocalNewerThan(wsData.updatedAt)) {
+              console.log('[FirestoreService] Local browser data is newer than Cloud workspace. Preserving local data.');
+              const localWorkspace: UserWorkspaceData = {
+                teacher: Storage.getTeacher(),
+                classes: Storage.getClasses(),
+                activeClassId: Storage.getActiveClassId() || Storage.getClasses()[0]?.id || '',
+                students: Storage.getAllStudents(),
+                sessions: Storage.getAllSessions(),
+                grades: Storage.getAllGrades(),
+                agendas: Storage.getAllAgendas(),
+                savings: Storage.getAllSavings(),
+                isNewUser: false,
+              };
+              GradualSyncManager.triggerGradualSync(1500);
+              return localWorkspace;
+            }
             console.log('[FirestoreService] Fast-path: loaded workspace in 1 single document read');
             const result: UserWorkspaceData = {
               teacher: wsData.teacher || {
@@ -484,25 +571,27 @@ export const FirestoreService = {
 
           // Cache locally and consolidate in teacher_workspaces in background
           updateLocalCache(compiled);
-          try {
-            const wsRef = doc(db, 'teacher_workspaces', uid);
-            setDoc(
-              wsRef,
-              sanitizeForFirestore({
-                teacherUid: uid,
-                teacher: compiled.teacher,
-                classes: compiled.classes,
-                activeClassId: compiled.activeClassId,
-                students: compiled.students,
-                sessions: compiled.sessions,
-                grades: compiled.grades,
-                agendas: compiled.agendas,
-                savings: compiled.savings,
-                updatedAt: new Date().toISOString(),
-              }),
-              { merge: true }
-            ).catch((e) => console.warn('Background consolidate notice:', e));
-          } catch {}
+          if (!isQuotaExceeded()) {
+            try {
+              const wsRef = doc(db, 'teacher_workspaces', uid);
+              safeSetDoc(
+                wsRef,
+                sanitizeForFirestore({
+                  teacherUid: uid,
+                  teacher: compiled.teacher,
+                  classes: compiled.classes,
+                  activeClassId: compiled.activeClassId,
+                  students: compiled.students,
+                  sessions: compiled.sessions,
+                  grades: compiled.grades,
+                  agendas: compiled.agendas,
+                  savings: compiled.savings,
+                  updatedAt: new Date().toISOString(),
+                }),
+                { merge: true }
+              ).catch((e) => console.warn('Background consolidate notice:', e));
+            } catch {}
+          }
 
           return compiled;
         }
@@ -660,8 +749,19 @@ export const FirestoreService = {
       })
     );
 
-    await batch.commit();
-    console.log(`[FirestoreService] Seeded initial data for user ${uid}`);
+    if (!isQuotaExceeded()) {
+      try {
+        await batch.commit();
+        console.log(`[FirestoreService] Seeded initial data for user ${uid}`);
+      } catch (seedErr) {
+        if (isQuotaExceededError(seedErr)) {
+          markQuotaExceeded(String(seedErr));
+          console.warn('[FirestoreService] Daily quota exceeded during seed. Saved in local storage.');
+        } else {
+          console.warn('[FirestoreService] Seed commit notice:', seedErr);
+        }
+      }
+    }
 
     return {
       teacher: teacherProfile,
@@ -680,9 +780,6 @@ export const FirestoreService = {
    */
   async saveTeacherProfile(uid: string, profile: TeacherProfile): Promise<void> {
     this.queueWorkspaceSync(uid, { teacher: profile });
-    if (isQuotaExceeded()) return;
-    const docRef = doc(db, 'users', uid, 'profile', 'teacher');
-    await safeSetDoc(docRef, sanitizeForFirestore(profile), { merge: true });
   },
 
   /**
@@ -691,13 +788,6 @@ export const FirestoreService = {
   async saveClass(uid: string, classItem: ClassRoom, allClasses?: ClassRoom[]): Promise<void> {
     const classesList = allClasses || Storage.getClasses();
     this.queueWorkspaceSync(uid, { classes: classesList });
-    if (isQuotaExceeded()) return;
-    const docRef = doc(db, 'users', uid, 'classes', classItem.id);
-    await safeSetDoc(
-      docRef,
-      sanitizeForFirestore({ ...classItem, teacherUid: uid }),
-      { merge: true }
-    );
   },
 
   /**
@@ -716,26 +806,6 @@ export const FirestoreService = {
       sessions: sessionsList,
       grades: gradesList,
     });
-
-    if (isQuotaExceeded()) return;
-
-    // 1. Delete class document safely
-    await safeDeleteDoc(doc(db, 'users', uid, 'classes', classId));
-
-    // 2. Update consolidated workspace
-    const wsRef = doc(db, 'teacher_workspaces', uid);
-    await safeSetDoc(
-      wsRef,
-      sanitizeForFirestore({
-        teacherUid: uid,
-        classes: classesList,
-        students: studentsList,
-        sessions: sessionsList,
-        grades: gradesList,
-        updatedAt: new Date().toISOString(),
-      }),
-      { merge: true }
-    );
   },
 
   /**
@@ -744,13 +814,6 @@ export const FirestoreService = {
   async saveStudent(uid: string, student: Student, allStudents?: Student[]): Promise<void> {
     const studentsList = allStudents || Storage.getAllStudents();
     this.queueWorkspaceSync(uid, { students: studentsList });
-    if (isQuotaExceeded()) return;
-    const docRef = doc(db, 'users', uid, 'students', student.id);
-    await safeSetDoc(
-      docRef,
-      sanitizeForFirestore({ ...student, teacherUid: uid }),
-      { merge: true }
-    );
   },
 
   /**
@@ -764,74 +827,19 @@ export const FirestoreService = {
       students: studentsList,
       grades: gradesList,
     });
-
-    if (isQuotaExceeded()) return;
-
-    await safeDeleteDoc(doc(db, 'users', uid, 'students', studentId));
-    const wsRef = doc(db, 'teacher_workspaces', uid);
-    await safeSetDoc(
-      wsRef,
-      sanitizeForFirestore({
-        teacherUid: uid,
-        students: studentsList,
-        grades: gradesList,
-        updatedAt: new Date().toISOString(),
-      }),
-      { merge: true }
-    );
   },
 
   /**
-   * Save multiple students (e.g. from Excel/Spreadsheet import) with chunked batches
+   * Save multiple students (e.g. from Excel/Spreadsheet import)
    */
   async importStudentsBatch(
     uid: string,
-    students: Student[],
-    newGrades: StudentGrade[],
-    mode: 'replace' | 'append',
-    targetClassId: string
+    _students: Student[],
+    _newGrades: StudentGrade[],
+    _mode: 'replace' | 'append',
+    _targetClassId: string
   ): Promise<void> {
-    const ops: Array<(batch: ReturnType<typeof writeBatch>) => void> = [];
-
-    if (mode === 'replace') {
-      // Delete existing students for this class
-      const studentsRef = collection(db, 'users', uid, 'students');
-      const existingSnap = await getDocs(
-        query(studentsRef, where('classId', '==', targetClassId))
-      );
-      existingSnap.docs.forEach((d) => {
-        ops.push((batch) => batch.delete(d.ref));
-      });
-
-      // Delete existing grades for this class
-      const gradesRef = collection(db, 'users', uid, 'grades');
-      const existingGradesSnap = await getDocs(
-        query(gradesRef, where('classId', '==', targetClassId))
-      );
-      existingGradesSnap.docs.forEach((d) => {
-        ops.push((batch) => batch.delete(d.ref));
-      });
-    }
-
-    // Insert new students
-    students.forEach((s) => {
-      const sRef = doc(db, 'users', uid, 'students', s.id);
-      ops.push((batch) => {
-        batch.set(sRef, sanitizeForFirestore({ ...s, teacherUid: uid }));
-      });
-    });
-
-    // Insert new grades
-    newGrades.forEach((g) => {
-      const gRef = doc(db, 'users', uid, 'grades', g.id);
-      ops.push((batch) => {
-        batch.set(gRef, sanitizeForFirestore({ ...g, teacherUid: uid }));
-      });
-    });
-
-    await commitBatchOperations(ops, 350);
-
-    // Update workspace snapshot document
+    // Update workspace snapshot document (1 consolidated write)
     this.queueWorkspaceSync(uid, {
       students: Storage.getAllStudents(),
       grades: Storage.getAllGrades(),
@@ -848,20 +856,6 @@ export const FirestoreService = {
   ): Promise<void> {
     const sessionsList = allSessions || Storage.getAllSessions();
     this.queueWorkspaceSync(uid, { sessions: sessionsList });
-
-    if (isQuotaExceeded()) return;
-
-    // Write directly to unified workspace doc (1 single write!)
-    const wsRef = doc(db, 'teacher_workspaces', uid);
-    await safeSetDoc(
-      wsRef,
-      sanitizeForFirestore({
-        teacherUid: uid,
-        sessions: sessionsList,
-        updatedAt: new Date().toISOString(),
-      }),
-      { merge: true }
-    );
   },
 
   /**
@@ -873,22 +867,8 @@ export const FirestoreService = {
     allSessions?: AttendanceSession[]
   ): Promise<void> {
     if (!sessions || sessions.length === 0) return;
-
     const sessionsList = allSessions || Storage.getAllSessions();
     this.queueWorkspaceSync(uid, { sessions: sessionsList });
-
-    if (isQuotaExceeded()) return;
-
-    const wsRef = doc(db, 'teacher_workspaces', uid);
-    await safeSetDoc(
-      wsRef,
-      sanitizeForFirestore({
-        teacherUid: uid,
-        sessions: sessionsList,
-        updatedAt: new Date().toISOString(),
-      }),
-      { merge: true }
-    );
   },
 
   /**
@@ -902,22 +882,6 @@ export const FirestoreService = {
     const sessionsList =
       remainingSessions || Storage.getAllSessions().filter((s) => s.id !== sessionId);
     this.queueWorkspaceSync(uid, { sessions: sessionsList });
-
-    if (isQuotaExceeded()) return;
-
-    const docRef = doc(db, 'users', uid, 'attendance_sessions', sessionId);
-    await safeDeleteDoc(docRef);
-
-    const wsRef = doc(db, 'teacher_workspaces', uid);
-    await safeSetDoc(
-      wsRef,
-      sanitizeForFirestore({
-        teacherUid: uid,
-        sessions: sessionsList,
-        updatedAt: new Date().toISOString(),
-      }),
-      { merge: true }
-    );
   },
 
   /**
@@ -926,19 +890,6 @@ export const FirestoreService = {
   async saveGrade(uid: string, grade: StudentGrade, allGrades?: StudentGrade[]): Promise<void> {
     const gradesList = allGrades || Storage.getAllGrades();
     this.queueWorkspaceSync(uid, { grades: gradesList });
-
-    if (isQuotaExceeded()) return;
-
-    const wsRef = doc(db, 'teacher_workspaces', uid);
-    await safeSetDoc(
-      wsRef,
-      sanitizeForFirestore({
-        teacherUid: uid,
-        grades: gradesList,
-        updatedAt: new Date().toISOString(),
-      }),
-      { merge: true }
-    );
   },
 
   /**
@@ -1078,22 +1029,6 @@ export const FirestoreService = {
     const updatedList =
       remainingAgendas || Storage.getAllAgendas().filter((a) => a.id !== agendaId);
     this.queueWorkspaceSync(uid, { agendas: updatedList });
-
-    if (isQuotaExceeded()) return;
-
-    const docRef = doc(db, 'users', uid, 'teaching_agendas', agendaId);
-    await safeDeleteDoc(docRef);
-
-    const wsRef = doc(db, 'teacher_workspaces', uid);
-    await safeSetDoc(
-      wsRef,
-      sanitizeForFirestore({
-        teacherUid: uid,
-        agendas: updatedList,
-        updatedAt: new Date().toISOString(),
-      }),
-      { merge: true }
-    );
   },
 
   /**
@@ -1116,12 +1051,20 @@ export const FirestoreService = {
     ];
 
     for (const colName of collectionsToClear) {
+      if (isQuotaExceeded()) break;
       const colRef = collection(db, 'users', uid, colName);
       const snap = await getDocs(colRef);
       if (!snap.empty) {
         const batch = writeBatch(db);
         snap.docs.forEach((d) => batch.delete(d.ref));
-        await batch.commit();
+        try {
+          await batch.commit();
+        } catch (err) {
+          if (isQuotaExceededError(err)) {
+            markQuotaExceeded(String(err));
+            break;
+          }
+        }
       }
     }
 
@@ -1200,6 +1143,7 @@ export const FirestoreService = {
       }),
       { merge: true }
     );
+    GradualSyncManager.markCloudSynced();
   },
 
   /**

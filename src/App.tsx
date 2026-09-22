@@ -15,7 +15,7 @@ import {
 } from 'lucide-react';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
 import { auth } from './lib/firebase';
-import { FirestoreService } from './services/firestoreService';
+import { FirestoreService, isQuotaExceeded } from './services/firestoreService';
 import { ToastContainer, ToastItem } from './components/Toast';
 import { CloudLoadingScreen } from './components/CloudLoadingScreen';
 import {
@@ -53,6 +53,7 @@ import { KisiKartuSoalView } from './components/kisi-kartu-soal/KisiKartuSoalVie
 import { PublicTabunganView } from './components/PublicTabunganView';
 import { PublicAbsensiView } from './components/PublicAbsensiView';
 import { PublicNilaiView } from './components/PublicNilaiView';
+import { GradualSyncManager, SyncState } from './services/gradualSyncManager';
 
 export default function App() {
   // Public Tabungan View State (for parents visiting public share link)
@@ -120,7 +121,7 @@ export default function App() {
   const [allSavings, setAllSavings] = useState<SavingTransaction[]>(() => Storage.getAllSavings());
 
   // Cloud State & UX Feedback
-  const [isCloudLoading, setIsCloudLoading] = useState<boolean>(true);
+  const [isCloudLoading, setIsCloudLoading] = useState<boolean>(false);
   const [cloudStatusMsg, setCloudStatusMsg] = useState<string>('Menghubungkan ke Cloud Firestore...');
   const [isCloudSaving, setIsCloudSaving] = useState<boolean>(false);
   const [isSavingsSavingCloud, setIsSavingsSavingCloud] = useState<boolean>(false);
@@ -141,10 +142,24 @@ export default function App() {
     setToasts((prev) => prev.filter((t) => t.id !== id));
   };
 
-  // Google Authentication Gate (as explicitly requested: "Awali dengan form login dengan akun google bagi user")
+  // Google Authentication Gate (persisted across refreshes)
   const [isGoogleLoggedIn, setIsGoogleLoggedIn] = useState<boolean>(() => {
-    return sessionStorage.getItem('sim_google_auth_active') === 'true';
+    return (
+      sessionStorage.getItem('sim_google_auth_active') === 'true' ||
+      localStorage.getItem('sim_google_auth_active') === 'true'
+    );
   });
+
+  // Gradual Sync State (Browser persistence + background Cloud sync)
+  const [syncState, setSyncState] = useState<SyncState>(() =>
+    GradualSyncManager.getSyncState()
+  );
+
+  useEffect(() => {
+    return GradualSyncManager.subscribe((state) => {
+      setSyncState(state);
+    });
+  }, []);
 
   // Active Tab
   const [activeTab, setActiveTab] = useState<ActiveTab>('absensi');
@@ -161,20 +176,35 @@ export default function App() {
   const [isDeleteClassModalOpen, setIsDeleteClassModalOpen] = useState(false);
   const [classToDeleteId, setClassToDeleteId] = useState<string | null>(null);
 
-  // Firebase Auth State Listener & Cloud Firestore Fetch
+  // Firebase Auth State Listener & Browser-First Data Priority
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
         setIsGoogleLoggedIn(true);
         sessionStorage.setItem('sim_google_auth_active', 'true');
+        localStorage.setItem('sim_google_auth_active', 'true');
+        GradualSyncManager.setActiveUid(firebaseUser.uid);
+
+        // Prioritas Browser: Cek data yang sudah tersimpan di browser terlebih dahulu
+        const localClasses = Storage.getClasses();
+        const hasLocalData = localClasses.length > 0;
+
+        // Jika data sudah ada di browser, gunakan langsung tanpa membuang kuota pembacaan Cloud!
+        if (hasLocalData) {
+          setIsCloudLoading(false);
+          console.log('[App] Data dimuat dari browser lokal. Gunakan tombol navigasi untuk sinkronisasi ke Cloud.');
+          return;
+        }
+
+        // Hanya jika browser benar-benar kosong, ambil data dari cloud untuk pertama kali
         setIsCloudLoading(true);
-        setCloudStatusMsg(`Mengambil data cloud untuk ${firebaseUser.email || 'pengguna'}...`);
+        setCloudStatusMsg(`Memeriksa data Cloud untuk ${firebaseUser.email || 'pengguna'}...`);
 
         try {
           const userData = await FirestoreService.loadUserData(firebaseUser.uid);
 
           if (userData.isNewUser) {
-            setCloudStatusMsg('Menyiapkan ruang kelas & data awal Anda di Cloud Firestore...');
+            setCloudStatusMsg('Menyiapkan ruang kelas & data awal Anda...');
             const seeded = await FirestoreService.seedInitialUserData(
               firebaseUser.uid,
               firebaseUser
@@ -188,7 +218,7 @@ export default function App() {
             if ((seeded as any).savings) {
               setAllSavings((seeded as any).savings);
             }
-            showToast('Akun Google terhubung! Data baru telah disiapkan di Cloud Firestore.', 'success');
+            showToast('Akun Google terhubung! Data baru disiapkan di browser.', 'success');
           } else {
             setTeacher(userData.teacher);
             setClasses(userData.classes);
@@ -203,25 +233,53 @@ export default function App() {
               setAllSavings((userData as any).savings);
             }
             showToast(
-              `Selamat datang, ${userData.teacher.namaGuru || firebaseUser.displayName || 'Guru'}. Data otomatis ditarik dari Cloud Firestore.`,
+              `Selamat datang, ${userData.teacher.namaGuru || firebaseUser.displayName || 'Guru'}. Data dimuat ke browser.`,
               'success'
             );
           }
         } catch (error: any) {
-          console.error('[App] Error loading from Cloud Firestore:', error);
-          showToast('Gagal memuat data dari Cloud Firestore. Menggunakan data lokal.', 'error');
+          console.error('[App] Notice loading from Cloud Firestore:', error);
+          showToast('Menggunakan data tersimpan di browser lokal.', 'info');
         } finally {
           setIsCloudLoading(false);
         }
       } else {
         setIsGoogleLoggedIn(false);
         sessionStorage.removeItem('sim_google_auth_active');
+        localStorage.removeItem('sim_google_auth_active');
         setIsCloudLoading(false);
       }
     });
 
     return () => unsubscribe();
   }, []);
+
+  const handleForceSync = async () => {
+    if (!auth.currentUser) {
+      showToast('Silakan login dengan akun Google terlebih dahulu untuk menyinkronkan data ke Cloud Firestore.', 'info');
+      return;
+    }
+    if (isQuotaExceeded()) {
+      showToast(
+        'Batas kuota harian Cloud Firestore sedang penuh. Seluruh data tetap tersimpan 100% aman di browser Anda.',
+        'info'
+      );
+      return;
+    }
+    setIsCloudSaving(true);
+    try {
+      const ok = await GradualSyncManager.forceSyncNow();
+      if (ok) {
+        showToast('Seluruh data di browser berhasil disinkronkan ke Cloud Firestore!', 'success');
+      } else {
+        showToast('Data tersimpan aman di browser.', 'info');
+      }
+    } catch (err: any) {
+      showToast('Data tersimpan di browser. Sinkron ke cloud tertunda: ' + (err?.message || 'koneksi'), 'info');
+    } finally {
+      setIsCloudSaving(false);
+    }
+  };
 
   const handlePullCloudData = async () => {
     if (!auth.currentUser) {
@@ -474,6 +532,7 @@ export default function App() {
     newClass?: ClassRoom
   ) => {
     sessionStorage.setItem('sim_google_auth_active', 'true');
+    localStorage.setItem('sim_google_auth_active', 'true');
     setIsGoogleLoggedIn(true);
     setTeacher(updatedTeacher);
 
@@ -519,6 +578,7 @@ export default function App() {
     try {
       await signOut(auth);
       sessionStorage.removeItem('sim_google_auth_active');
+      localStorage.removeItem('sim_google_auth_active');
       setIsGoogleLoggedIn(false);
       setTeacher((prev) => ({ ...prev, isLoggedIn: false }));
       showToast('Anda telah keluar dari akun Google.', 'info');
@@ -1435,6 +1495,10 @@ export default function App() {
         activeTab={activeTab}
         isCloudSaving={isCloudSaving}
         isCloudLoading={isCloudLoading}
+        syncStatus={syncState.status}
+        lastSyncedTime={syncState.lastSyncedTimeStr}
+        pendingCount={syncState.pendingCount}
+        onForceSync={handleForceSync}
         onPullCloudData={handlePullCloudData}
         onSelectClass={handleSelectClass}
         onSelectTab={setActiveTab}

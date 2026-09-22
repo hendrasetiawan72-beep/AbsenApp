@@ -136,6 +136,55 @@ export const GradesView: React.FC<GradesViewProps> = ({
     }
   }, [classId, safeSemester, academicYear, grades, initialHeaders]);
 
+  // Synchronous immediate browser storage: save in browser instantly on every keystroke
+  useEffect(() => {
+    if (hasUnsavedChanges && localGrades.length > 0) {
+      try {
+        const allGrades = Storage.getAllGrades();
+        const updatedAll = [
+          ...allGrades.filter((g) => g.classId !== classId),
+          ...localGrades,
+        ];
+        Storage.setAllGrades(updatedAll);
+      } catch (e) {
+        console.warn('[GradesView] Local storage sync warning:', e);
+      }
+    }
+  }, [localGrades, hasUnsavedChanges, classId]);
+
+  useEffect(() => {
+    if (hasUnsavedChanges && columnHeaders.length > 0) {
+      try {
+        Storage.setGradeHeaders(classId, columnHeaders);
+      } catch (e) {
+        console.warn('[GradesView] Column headers sync warning:', e);
+      }
+    }
+  }, [columnHeaders, hasUnsavedChanges, classId]);
+
+  // Flush unsaved changes synchronously on browser reload / tab close
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      if (hasUnsavedChanges) {
+        try {
+          if (localGrades.length > 0) {
+            const allGrades = Storage.getAllGrades();
+            const updatedAll = [
+              ...allGrades.filter((g) => g.classId !== classId),
+              ...localGrades,
+            ];
+            Storage.setAllGrades(updatedAll);
+          }
+          if (columnHeaders.length > 0) {
+            Storage.setGradeHeaders(classId, columnHeaders);
+          }
+        } catch {}
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [hasUnsavedChanges, localGrades, columnHeaders, classId]);
+
   // Non-blocking debounced Cloud auto-sync (automatically saves changes in background after 500ms without locking the UI)
   useEffect(() => {
     if (!hasUnsavedChanges) return;

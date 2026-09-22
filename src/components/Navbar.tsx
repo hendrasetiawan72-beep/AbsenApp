@@ -15,6 +15,8 @@ import {
   Trash2,
   LogOut,
   Cloud,
+  CloudDownload,
+  CloudUpload,
   MapPin,
   Sparkles,
   CheckSquare,
@@ -31,6 +33,10 @@ interface NavbarProps {
   activeTab: ActiveTab;
   isCloudSaving?: boolean;
   isCloudLoading?: boolean;
+  syncStatus?: 'synced' | 'saving_local' | 'syncing' | 'pending' | 'offline' | 'error' | 'quota_exceeded';
+  lastSyncedTime?: string | null;
+  pendingCount?: number;
+  onForceSync?: () => void;
   onPullCloudData?: () => void;
   onSelectClass: (classId: string) => void;
   onSelectTab: (tab: ActiveTab) => void;
@@ -50,6 +56,10 @@ export const Navbar: React.FC<NavbarProps> = ({
   activeTab,
   isCloudSaving = false,
   isCloudLoading = false,
+  syncStatus = 'synced',
+  lastSyncedTime = null,
+  pendingCount = 0,
+  onForceSync,
   onPullCloudData,
   onSelectClass,
   onSelectTab,
@@ -144,38 +154,101 @@ export const Navbar: React.FC<NavbarProps> = ({
               )}
             </div>
 
-            {/* Cloud Sync Status Indicator & Manual Pull */}
-            <div className="flex items-center gap-1.5 px-2 py-1 rounded-xl bg-slate-50 border border-slate-200/80 text-[11px] font-medium text-slate-600 shadow-2xs">
-              {isCloudSaving ? (
+            {/* Status Penyimpanan Browser */}
+            <div
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-slate-50 border border-slate-200/80 text-[11px] font-medium text-slate-700 shadow-2xs"
+              title={`Status: Data selalu aman di browser Anda lebih dulu. ${
+                lastSyncedTime ? `Terakhir disinkronkan ke Cloud: ${lastSyncedTime}` : ''
+              }`}
+            >
+              {syncStatus === 'syncing' || isCloudSaving ? (
                 <>
                   <RefreshCw className="w-3.5 h-3.5 text-amber-500 animate-spin shrink-0" />
-                  <span className="text-amber-600 font-semibold hidden md:inline">Menyimpan...</span>
+                  <span className="text-amber-700 font-semibold hidden md:inline">
+                    Menyimpan ke Cloud...
+                  </span>
                 </>
               ) : isCloudLoading ? (
                 <>
                   <RefreshCw className="w-3.5 h-3.5 text-indigo-600 animate-spin shrink-0" />
-                  <span className="text-indigo-600 font-semibold hidden md:inline">Memuat...</span>
+                  <span className="text-indigo-600 font-semibold hidden md:inline">
+                    Memuat dari Cloud...
+                  </span>
+                </>
+              ) : syncStatus === 'quota_exceeded' ? (
+                <>
+                  <span className="w-2 h-2 rounded-full bg-indigo-500 shrink-0" />
+                  <span className="text-indigo-800 font-semibold hidden md:inline" title="Batas kuota harian Cloud tercapai. Data 100% aman tersimpan di browser Anda.">
+                    Tersimpan di Browser (Cloud Kuota Penuh)
+                  </span>
+                </>
+              ) : syncStatus === 'offline' ? (
+                <>
+                  <span className="w-2 h-2 rounded-full bg-sky-500 shrink-0" />
+                  <span className="text-sky-700 font-semibold hidden md:inline">
+                    Tersimpan di Browser (Offline)
+                  </span>
+                </>
+              ) : pendingCount > 0 ? (
+                <>
+                  <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse shrink-0" />
+                  <span className="text-amber-700 font-semibold hidden md:inline">
+                    Tersimpan di Browser ({pendingCount} belum disinkron)
+                  </span>
                 </>
               ) : (
                 <>
                   <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
-                  <span className="text-slate-600 font-medium hidden md:inline">Cloud Aktif</span>
+                  <span className="text-slate-700 font-medium hidden md:inline">
+                    Tersimpan di Browser
+                  </span>
                 </>
               )}
-
-              {onPullCloudData && (
-                <button
-                  type="button"
-                  onClick={onPullCloudData}
-                  disabled={isCloudLoading || isCloudSaving}
-                  title="Ambil / Tarik data terbaru dari Cloud Firestore"
-                  className="inline-flex items-center gap-1 px-1.5 py-0.5 ml-1 rounded-md text-[10px] font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200/70 transition-colors cursor-pointer disabled:opacity-50"
-                >
-                  <RefreshCw className={`w-2.5 h-2.5 ${isCloudLoading ? 'animate-spin' : ''}`} />
-                  <span>Ambil Cloud</span>
-                </button>
-              )}
             </div>
+
+            {/* Tombol Navigasi Cloud: Tarik dari Cloud */}
+            {onPullCloudData && (
+              <button
+                type="button"
+                onClick={onPullCloudData}
+                disabled={isCloudLoading || isCloudSaving}
+                title="Tarik & ambil data terbaru dari Cloud Firestore ke browser"
+                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 transition-all cursor-pointer shadow-2xs disabled:opacity-50"
+              >
+                <CloudDownload className={`w-3.5 h-3.5 ${isCloudLoading ? 'animate-bounce' : ''}`} />
+                <span className="hidden sm:inline">Tarik Cloud</span>
+              </button>
+            )}
+
+            {/* Tombol Navigasi Cloud: Sinkronkan ke Cloud */}
+            {onForceSync && (
+              <button
+                type="button"
+                onClick={onForceSync}
+                disabled={isCloudLoading || isCloudSaving}
+                title="Sinkronkan data yang tersimpan di browser ke Cloud Firestore"
+                className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer shadow-2xs disabled:opacity-50 ${
+                  pendingCount > 0
+                    ? 'text-amber-900 bg-amber-100 hover:bg-amber-200 border border-amber-300'
+                    : 'text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200'
+                }`}
+              >
+                <CloudUpload className={`w-3.5 h-3.5 ${isCloudSaving ? 'animate-bounce' : ''}`} />
+                <span>
+                  {pendingCount > 0 ? (
+                    <>
+                      <span className="hidden sm:inline">Sinkronkan Cloud</span>
+                      <span className="sm:hidden">Sync</span> ({pendingCount})
+                    </>
+                  ) : (
+                    <>
+                      <span className="hidden sm:inline">Sinkronkan Cloud</span>
+                      <span className="sm:hidden">Sync</span>
+                    </>
+                  )}
+                </span>
+              </button>
+            )}
 
             {/* Backup & Restore Database JSON Button */}
             {onOpenBackupModal && (
