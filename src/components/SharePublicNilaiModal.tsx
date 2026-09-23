@@ -69,7 +69,12 @@ export const SharePublicNilaiModal: React.FC<SharePublicNilaiModalProps> = ({
   });
 
   // Settings for public access
-  const [isPublicEnabled, setIsPublicEnabled] = useState<boolean>(true);
+  const [isPublicEnabled, setIsPublicEnabled] = useState<boolean>(() => {
+    if (typeof window !== 'undefined' && currentClass?.id) {
+      return localStorage.getItem(`pub_access_nil_${currentClass.id}`) === 'true';
+    }
+    return false;
+  });
   const [allowClassRecap, setAllowClassRecap] = useState<boolean>(true);
   const [pinRequired, setPinRequired] = useState<boolean>(false);
   const [accessPin, setAccessPin] = useState<string>('1234');
@@ -95,7 +100,9 @@ export const SharePublicNilaiModal: React.FC<SharePublicNilaiModalProps> = ({
     FirestoreService.getPublicNilai(shareId)
       .then((existing) => {
         if (existing) {
-          setIsPublicEnabled(existing.isPublicEnabled !== false);
+          const isOpenState = existing.isPublicEnabled === true;
+          setIsPublicEnabled(isOpenState);
+          localStorage.setItem(`pub_access_nil_${currentClass.id}`, String(isOpenState));
           setAllowClassRecap(existing.allowClassRecap !== false);
           setPinRequired(!!existing.pinRequired);
           if (existing.accessPin) setAccessPin(existing.accessPin);
@@ -317,6 +324,9 @@ export const SharePublicNilaiModal: React.FC<SharePublicNilaiModalProps> = ({
   const handleTogglePublicAccess = async () => {
     const nextState = !isPublicEnabled;
     setIsPublicEnabled(nextState);
+    if (typeof window !== 'undefined' && currentClass?.id) {
+      localStorage.setItem(`pub_access_nil_${currentClass.id}`, String(nextState));
+    }
     setIsTogglingAccess(true);
 
     try {

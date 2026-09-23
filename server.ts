@@ -86,8 +86,8 @@ async function startServer() {
 
       const docData = docSnap.data();
 
-      // Jika akses link ditutup oleh guru: kembalikan payload ringan tanpa daftar nilai/siswa
-      if (docData.isPublicEnabled === false) {
+      // Jika akses link belum dibuka oleh guru (privat/terkunci): kembalikan payload terkunci tanpa daftar nilai/siswa
+      if (docData.isPublicEnabled !== true) {
         const closedData = {
           shareId,
           className: docData.className,
@@ -124,11 +124,146 @@ async function startServer() {
     }
   });
 
+  // 1b. Ambil Data Share Absensi (Cache-First Cloud Run)
+  app.get('/api/public/absensi/:shareId', async (req, res) => {
+    const { shareId } = req.params;
+    if (!shareId) {
+      return res.status(400).json({ error: 'Share ID is required' });
+    }
+
+    const now = Date.now();
+    const cacheKey = `abs_${shareId}`;
+    const cached = publicShareCache.get(cacheKey);
+
+    if (cached && now - cached.cachedAt < CACHE_TTL_MS) {
+      res.setHeader('Cache-Control', 'public, max-age=300, s-maxage=600');
+      res.setHeader('X-Cache', 'HIT');
+      return res.json(cached.data);
+    }
+
+    try {
+      const db = await getServerDb();
+      if (!db) {
+        return res.status(503).json({ error: 'Firestore server instance unavailable' });
+      }
+
+      const { doc, getDoc } = await import('firebase/firestore');
+      let docSnap = await getDoc(doc(db, 'public_absensi', shareId));
+      if (!docSnap.exists() && shareId.startsWith('abs_')) {
+        const parts = shareId.split('_');
+        if (parts.length > 2) {
+          const classPart = parts.slice(2).join('_');
+          docSnap = await getDoc(doc(db, 'public_absensi', `abs_${classPart}`));
+        }
+      }
+
+      if (!docSnap.exists()) {
+        return res.status(404).json({ error: 'Data share absensi tidak ditemukan' });
+      }
+
+      const docData = docSnap.data();
+      if (docData.isPublicEnabled !== true) {
+        const closedData = {
+          shareId,
+          className: docData.className,
+          mataPelajaran: docData.mataPelajaran,
+          schoolName: docData.schoolName,
+          waliKelas: docData.waliKelas,
+          academicYear: docData.academicYear,
+          isPublicEnabled: false,
+          updatedAt: docData.updatedAt,
+          students: [],
+          sessions: [],
+        };
+        publicShareCache.set(cacheKey, { data: closedData, cachedAt: now });
+        res.setHeader('Cache-Control', 'public, max-age=300, s-maxage=600');
+        res.setHeader('X-Cache', 'MISS');
+        return res.json(closedData);
+      }
+
+      publicShareCache.set(cacheKey, { data: docData, cachedAt: now });
+      res.setHeader('Cache-Control', 'public, max-age=300, s-maxage=600');
+      res.setHeader('X-Cache', 'MISS');
+      return res.json(docData);
+    } catch (error: any) {
+      console.error('[Public Absensi API] Error fetching snapshot:', error);
+      return res.status(500).json({ error: error.message || 'Gagal mengambil data snapshot absensi' });
+    }
+  });
+
+  // 1c. Ambil Data Share Tabungan (Cache-First Cloud Run)
+  app.get('/api/public/tabungan/:shareId', async (req, res) => {
+    const { shareId } = req.params;
+    if (!shareId) {
+      return res.status(400).json({ error: 'Share ID is required' });
+    }
+
+    const now = Date.now();
+    const cacheKey = `tb_${shareId}`;
+    const cached = publicShareCache.get(cacheKey);
+
+    if (cached && now - cached.cachedAt < CACHE_TTL_MS) {
+      res.setHeader('Cache-Control', 'public, max-age=300, s-maxage=600');
+      res.setHeader('X-Cache', 'HIT');
+      return res.json(cached.data);
+    }
+
+    try {
+      const db = await getServerDb();
+      if (!db) {
+        return res.status(503).json({ error: 'Firestore server instance unavailable' });
+      }
+
+      const { doc, getDoc } = await import('firebase/firestore');
+      let docSnap = await getDoc(doc(db, 'public_tabungan', shareId));
+      if (!docSnap.exists() && shareId.startsWith('tb_')) {
+        const parts = shareId.split('_');
+        if (parts.length > 2) {
+          const classPart = parts.slice(2).join('_');
+          docSnap = await getDoc(doc(db, 'public_tabungan', `tb_${classPart}`));
+        }
+      }
+
+      if (!docSnap.exists()) {
+        return res.status(404).json({ error: 'Data share tabungan tidak ditemukan' });
+      }
+
+      const docData = docSnap.data();
+      if (docData.isPublicEnabled !== true) {
+        const closedData = {
+          shareId,
+          className: docData.className,
+          schoolName: docData.schoolName,
+          waliKelas: docData.waliKelas,
+          academicYear: docData.academicYear,
+          isPublicEnabled: false,
+          updatedAt: docData.updatedAt,
+          students: [],
+          savings: [],
+        };
+        publicShareCache.set(cacheKey, { data: closedData, cachedAt: now });
+        res.setHeader('Cache-Control', 'public, max-age=300, s-maxage=600');
+        res.setHeader('X-Cache', 'MISS');
+        return res.json(closedData);
+      }
+
+      publicShareCache.set(cacheKey, { data: docData, cachedAt: now });
+      res.setHeader('Cache-Control', 'public, max-age=300, s-maxage=600');
+      res.setHeader('X-Cache', 'MISS');
+      return res.json(docData);
+    } catch (error: any) {
+      console.error('[Public Tabungan API] Error fetching snapshot:', error);
+      return res.status(500).json({ error: error.message || 'Gagal mengambil data snapshot tabungan' });
+    }
+  });
+
   // 2. Invalidate Cache ketika Guru Memperbarui Snapshot
-  app.post('/api/public/nilai/invalidate', (req, res) => {
-    const { shareId } = req.body;
+  app.post(['/api/public/nilai/invalidate', '/api/public/cache/invalidate'], (req, res) => {
+    const { shareId } = req.body || {};
     if (shareId) {
       publicShareCache.delete(shareId);
+      publicShareCache.delete(`abs_${shareId}`);
+      publicShareCache.delete(`tb_${shareId}`);
     } else {
       publicShareCache.clear();
     }

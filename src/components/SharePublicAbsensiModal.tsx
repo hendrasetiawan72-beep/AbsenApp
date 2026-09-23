@@ -47,7 +47,12 @@ export const SharePublicAbsensiModal: React.FC<SharePublicAbsensiModalProps> = (
   const [copiedStudentId, setCopiedStudentId] = useState<string | null>(null);
   const [isPublishing, setIsPublishing] = useState(false);
   const [isTogglingAccess, setIsTogglingAccess] = useState(false);
-  const [isPublicEnabled, setIsPublicEnabled] = useState(true);
+  const [isPublicEnabled, setIsPublicEnabled] = useState<boolean>(() => {
+    if (typeof window !== 'undefined' && currentClass?.id) {
+      return localStorage.getItem(`pub_access_abs_${currentClass.id}`) === 'true';
+    }
+    return false;
+  });
   const [allowClassRecap, setAllowClassRecap] = useState(true);
   const [pinRequired, setPinRequired] = useState(false);
   const [accessPin, setAccessPin] = useState('');
@@ -93,7 +98,9 @@ export const SharePublicAbsensiModal: React.FC<SharePublicAbsensiModalProps> = (
     FirestoreService.getPublicAbsensi(shareId)
       .then((existing) => {
         if (existing) {
-          setIsPublicEnabled(existing.isPublicEnabled !== false);
+          const isOpenState = existing.isPublicEnabled === true;
+          setIsPublicEnabled(isOpenState);
+          localStorage.setItem(`pub_access_abs_${currentClass.id}`, String(isOpenState));
           setAllowClassRecap(existing.allowClassRecap !== false);
           setPinRequired(!!existing.pinRequired);
           if (existing.accessPin) setAccessPin(existing.accessPin);
@@ -311,6 +318,9 @@ export const SharePublicAbsensiModal: React.FC<SharePublicAbsensiModalProps> = (
   const handleTogglePublicAccess = async () => {
     const nextState = !isPublicEnabled;
     setIsPublicEnabled(nextState);
+    if (typeof window !== 'undefined' && currentClass?.id) {
+      localStorage.setItem(`pub_access_abs_${currentClass.id}`, String(nextState));
+    }
     setIsTogglingAccess(true);
 
     try {

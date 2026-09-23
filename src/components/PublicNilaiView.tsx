@@ -53,14 +53,12 @@ interface PublicNilaiViewProps {
   shareId: string;
   initialNisn?: string;
   initialStudentId?: string;
-  onExitToApp?: () => void;
 }
 
 export const PublicNilaiView: React.FC<PublicNilaiViewProps> = ({
   shareId,
   initialNisn,
   initialStudentId,
-  onExitToApp,
 }) => {
   // Fast initial cache lookup for 0ms instant preview access
   const [data, setData] = useState<PublicNilaiData | null>(() => {
@@ -461,40 +459,30 @@ export const PublicNilaiView: React.FC<PublicNilaiViewProps> = ({
           {errorMsg ||
             'Tautan pratinjau nilai ini belum dipublikasikan oleh guru, dinonaktifkan, atau format tautan tidak valid.'}
         </p>
-        {onExitToApp && (
-          <button
-            type="button"
-            onClick={onExitToApp}
-            className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl transition-all shadow-md cursor-pointer"
-          >
-            Buka Aplikasi Guru
-          </button>
-        )}
       </div>
     );
   }
 
-  // Disabled Screen
-  if (data.isPublicEnabled === false) {
+  // Tautan Privat / Terkunci (Ketika Belum Dibuka Akses Publik oleh Guru)
+  if (data.isPublicEnabled !== true) {
     return (
       <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center p-6 text-white text-center">
-        <div className="w-16 h-16 rounded-3xl bg-amber-500/20 text-amber-400 flex items-center justify-center mb-4 border border-amber-500/30">
-          <Lock className="w-8 h-8" />
+        <div className="bg-slate-800/90 backdrop-blur-md p-8 rounded-3xl shadow-2xl border border-slate-700 max-w-md w-full space-y-4">
+          <div className="w-16 h-16 rounded-2xl bg-amber-500/20 text-amber-400 flex items-center justify-center mx-auto border border-amber-500/30">
+            <Lock className="w-8 h-8" />
+          </div>
+          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-black uppercase tracking-wider bg-rose-500/20 text-rose-300 border border-rose-500/30">
+            <span className="w-2 h-2 rounded-full bg-rose-400 animate-pulse" />
+            Tautan Privat / Terkunci
+          </div>
+          <h2 className="text-xl font-black text-white">Akses Nilai Sedang Ditutup</h2>
+          <p className="text-xs text-slate-300 leading-relaxed">
+            Tautan pratinjau nilai kelas <strong>{data.className}</strong> ini bersifat privat dan terkunci. Tautan hanya dapat diakses saat guru pengampu membuka perizinan akses publik di aplikasi.
+          </p>
+          <div className="p-3 bg-slate-900/60 rounded-xl border border-slate-800 text-[11px] text-slate-400">
+            Silakan hubungi wali kelas atau guru mata pelajaran {data.mataPelajaran} untuk informasi nilai rapor siswa.
+          </div>
         </div>
-        <h2 className="text-2xl font-black text-white mb-2">Akses Nilai Sedang Ditutup</h2>
-        <p className="text-sm text-slate-400 max-w-md mb-6 leading-relaxed">
-          Guru pengampu telah menonaktifkan akses publik untuk rekapitulasi nilai kelas ini sementara waktu.
-          Silakan hubungi wali kelas atau guru mata pelajaran {data.mataPelajaran}.
-        </p>
-        {onExitToApp && (
-          <button
-            type="button"
-            onClick={onExitToApp}
-            className="px-5 py-2.5 bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold rounded-xl transition-all cursor-pointer"
-          >
-            Kembali ke Aplikasi Utama
-          </button>
-        )}
       </div>
     );
   }
@@ -626,19 +614,6 @@ export const PublicNilaiView: React.FC<PublicNilaiViewProps> = ({
                 <QrCode className="w-3.5 h-3.5" />
                 <span>QR Code</span>
               </button>
-
-              {/* Exit to App (Teacher Shortcut) */}
-              {onExitToApp && (
-                <button
-                  type="button"
-                  onClick={onExitToApp}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold transition-colors cursor-pointer shadow-xs"
-                  title="Kembali ke portal utama guru"
-                >
-                  <ExternalLink className="w-3.5 h-3.5" />
-                  <span>Aplikasi Guru</span>
-                </button>
-              )}
             </div>
           </div>
 

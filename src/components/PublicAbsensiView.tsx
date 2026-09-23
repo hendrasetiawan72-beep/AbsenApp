@@ -36,7 +36,6 @@ interface PublicAbsensiViewProps {
   shareId: string;
   initialNisn?: string;
   initialStudentId?: string;
-  onExitToApp?: () => void;
 }
 
 // Helper to extract student record regardless of whether records is dictionary or array
@@ -55,7 +54,6 @@ export const PublicAbsensiView: React.FC<PublicAbsensiViewProps> = ({
   shareId,
   initialNisn,
   initialStudentId,
-  onExitToApp,
 }) => {
   // Fast initial cache lookup for 0ms instant preview access
   const [data, setData] = useState<PublicAbsensiData | null>(() => {
@@ -506,43 +504,32 @@ export const PublicAbsensiView: React.FC<PublicAbsensiViewProps> = ({
           <p className="text-xs text-slate-600 leading-relaxed">
             Data tautan presensi orang tua ini mungkin belum diaktifkan oleh guru pengampu, atau alamat tautan tidak lengkap.
           </p>
-          {onExitToApp && (
-            <button
-              type="button"
-              onClick={onExitToApp}
-              className="mt-2 w-full py-2.5 px-4 bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold rounded-xl transition-colors cursor-pointer"
-            >
-              Kembali ke Halaman Utama
-            </button>
-          )}
         </div>
       </div>
     );
   }
 
-  // Disabled by teacher screen
-  if (!data.isPublicEnabled) {
+  // Tautan Privat / Terkunci (Ketika Belum Dibuka Akses Publik oleh Guru)
+  if (data.isPublicEnabled !== true) {
     return (
-      <div className="min-h-screen bg-slate-100 flex flex-col items-center justify-center p-4">
-        <div className="bg-white p-8 rounded-3xl shadow-xl border border-slate-200 text-center max-w-md w-full space-y-4">
-          <div className="w-14 h-14 bg-amber-100 text-amber-600 rounded-2xl flex items-center justify-center mx-auto">
-            <Lock className="w-7 h-7" />
+      <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center p-6 text-white text-center">
+        <div className="bg-slate-800/95 backdrop-blur-md p-8 rounded-3xl shadow-2xl border border-slate-700 max-w-md w-full space-y-4">
+          <div className="w-16 h-16 bg-amber-500/20 text-amber-400 rounded-2xl flex items-center justify-center mx-auto border border-amber-500/30">
+            <Lock className="w-8 h-8" />
           </div>
-          <h3 className="text-lg font-black text-slate-900">
-            Akses Publik Presensi Sedang Ditutup
+          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-black uppercase tracking-wider bg-rose-500/20 text-rose-300 border border-rose-500/30">
+            <span className="w-2 h-2 rounded-full bg-rose-400 animate-pulse" />
+            Tautan Privat / Terkunci
+          </div>
+          <h3 className="text-xl font-black text-white">
+            Akses Publik Presensi Ditutup
           </h3>
-          <p className="text-xs text-slate-600 leading-relaxed">
-            Guru pengampu kelas <strong>{data.className}</strong> saat ini menonaktifkan portal publik presensi. Silakan hubungi wali kelas untuk informasi lebih lanjut.
+          <p className="text-xs text-slate-300 leading-relaxed">
+            Tautan pratinjau presensi untuk kelas <strong>{data.className}</strong> ini berstatus privat. Tautan hanya dapat dilihat ketika guru pengampu membuka izin akses publik melalui aplikasi.
           </p>
-          {onExitToApp && (
-            <button
-              type="button"
-              onClick={onExitToApp}
-              className="mt-2 w-full py-2.5 px-4 bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold rounded-xl transition-colors cursor-pointer"
-            >
-              Buka Aplikasi Guru
-            </button>
-          )}
+          <div className="p-3 bg-slate-900/70 rounded-xl border border-slate-800 text-[11px] text-slate-400">
+            Silakan hubungi wali kelas atau guru mata pelajaran {data.mataPelajaran} untuk informasi kehadiran ananda.
+          </div>
         </div>
       </div>
     );
@@ -615,15 +602,6 @@ export const PublicAbsensiView: React.FC<PublicAbsensiViewProps> = ({
                 <Clock className="w-3 h-3" />
                 Terakhir sinkron: {lastLiveSync}
               </span>
-            )}
-            {onExitToApp && (
-              <button
-                type="button"
-                onClick={onExitToApp}
-                className="bg-emerald-800 hover:bg-emerald-900 text-white px-2.5 py-0.5 rounded-lg transition-colors cursor-pointer font-bold border border-emerald-600/60"
-              >
-                Kembali ke Aplikasi Guru
-              </button>
             )}
           </div>
         </div>

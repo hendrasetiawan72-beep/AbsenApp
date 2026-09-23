@@ -446,14 +446,16 @@ export const FirestoreService = {
       try {
         const wsRef = doc(db, 'teacher_workspaces', uid);
         const wsSnapPromise = getDoc(wsRef);
-        const timeoutWs = new Promise<null>((resolve) => setTimeout(() => resolve(null), 1800));
+        const timeoutWs = new Promise<null>((resolve) =>
+          setTimeout(() => resolve(null), forceRemote ? 6000 : 2500)
+        );
         const wsSnap = await Promise.race([wsSnapPromise, timeoutWs]);
 
         if (wsSnap && wsSnap.exists()) {
           const wsData = wsSnap.data() as any;
           if (wsData && Array.isArray(wsData.classes) && wsData.classes.length > 0) {
-            // If local browser data is newer than Cloud document, preserve local browser data!
-            if (wsData.updatedAt && GradualSyncManager.isLocalNewerThan(wsData.updatedAt)) {
+            // If local browser data is newer than Cloud document, preserve local browser data UNLESS forceRemote is true!
+            if (!forceRemote && wsData.updatedAt && GradualSyncManager.isLocalNewerThan(wsData.updatedAt)) {
               console.log('[FirestoreService] Local browser data is newer than Cloud workspace. Preserving local data.');
               const localWorkspace: UserWorkspaceData = {
                 teacher: Storage.getTeacher(),
@@ -640,10 +642,10 @@ export const FirestoreService = {
       };
     };
 
-    // Fast Timeout Guard (2.5 seconds max wait before serving instant cached or local data)
+    // Fast Timeout Guard (up to 7.5 seconds if forceRemote, 3 seconds otherwise)
     try {
       const timeoutPromise = new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error('TIMEOUT_FAST_LOAD')), 2500)
+        setTimeout(() => reject(new Error('TIMEOUT_FAST_LOAD')), forceRemote ? 7500 : 3000)
       );
       return await Promise.race([fetchFromFirestore(), timeoutPromise]);
     } catch (err: any) {
@@ -1144,6 +1146,252 @@ export const FirestoreService = {
       { merge: true }
     );
     GradualSyncManager.markCloudSynced();
+  },
+
+  /**
+   * Broadcast all current local browser data to any opened preview tabs/windows (0ms latency)
+   */
+  broadcastAllLocalPreviews(teacherUid: string): void {
+    if (typeof window === 'undefined') return;
+    try {
+      const teacher = Storage.getTeacher();
+      const classes = Storage.getClasses();
+      const students = Storage.getAllStudents();
+      const sessions = Storage.getAllSessions();
+      const grades = Storage.getAllGrades();
+      const savings = Storage.getAllSavings();
+
+      classes.forEach((cls) => {
+        const classStudents = students.filter((s) => s.classId === cls.id);
+        const classSessions = sessions.filter((s) => s.classId === cls.id);
+        const classGrades = grades.filter((g) => g.classId === cls.id);
+        const classSavings = savings.filter(
+          (t) => t.classId === cls.id || classStudents.some((s) => s.id === t.studentId)
+        );
+
+        const absShareId = this.getPublicAbsensiShareId(teacherUid, cls.id);
+        const nilShareId = this.getPublicNilaiShareId(teacherUid, cls.id);
+        const tbShareId = this.getPublicTabunganShareId(teacherUid, cls.id);
+
+        const isAbsOpen = typeof window !== 'undefined'
+          ? localStorage.getItem(`pub_access_abs_${cls.id}`) === 'true'
+          : false;
+        const isNilOpen = typeof window !== 'undefined'
+          ? localStorage.getItem(`pub_access_nil_${cls.id}`) === 'true'
+          : false;
+        const isTbOpen = typeof window !== 'undefined'
+          ? localStorage.getItem(`pub_access_tb_${cls.id}`) === 'true'
+          : false;
+
+        broadcastPreviewUpdate('absensi', absShareId, cls.id, {
+          shareId: absShareId,
+          classId: cls.id,
+          className: cls.namaKelas,
+          mataPelajaran: cls.mataPelajaran || teacher.mataPelajaranUtama || 'Umum',
+          schoolName: teacher.namaSekolah || 'SMK Muhammadiyah Bawang',
+          waliKelas: teacher.namaGuru || 'Guru Pengampu',
+          nip: teacher.nip || '',
+          academicYear: teacher.tahunAjaran || '2025/2026',
+          semester: teacher.semester || 'Ganjil',
+          teacherUid,
+          updatedAt: new Date().toISOString(),
+          students: isAbsOpen ? classStudents : [],
+          sessions: isAbsOpen ? classSessions : [],
+          isPublicEnabled: isAbsOpen,
+          allowClassRecap: true,
+        });
+
+        broadcastPreviewUpdate('nilai', nilShareId, cls.id, {
+          shareId: nilShareId,
+          classId: cls.id,
+          className: cls.namaKelas,
+          mataPelajaran: cls.mataPelajaran || teacher.mataPelajaranUtama || 'Umum',
+          schoolName: teacher.namaSekolah || 'SMK Muhammadiyah Bawang',
+          waliKelas: teacher.namaGuru || 'Guru Pengampu',
+          academicYear: teacher.tahunAjaran || '2025/2026',
+          semester: teacher.semester || 'Ganjil',
+          teacherUid,
+          kkm: cls.kkm || 75,
+          updatedAt: new Date().toISOString(),
+          students: isNilOpen ? classStudents : [],
+          grades: isNilOpen ? classGrades : [],
+          isPublicEnabled: isNilOpen,
+        });
+
+        broadcastPreviewUpdate('tabungan', tbShareId, cls.id, {
+          shareId: tbShareId,
+          classId: cls.id,
+          className: cls.namaKelas,
+          schoolName: teacher.namaSekolah || 'SMK Muhammadiyah Bawang',
+          waliKelas: teacher.namaGuru || 'Guru Pengampu',
+          academicYear: teacher.tahunAjaran || '2025/2026',
+          teacherUid,
+          updatedAt: new Date().toISOString(),
+          students: isTbOpen ? classStudents : [],
+          savings: isTbOpen ? classSavings : [],
+          isPublicEnabled: isTbOpen,
+        });
+      });
+    } catch (e) {
+      console.warn('[FirestoreService] broadcastAllLocalPreviews error:', e);
+    }
+  },
+
+  /**
+   * Fast bidirectional Cloud & Preview snapshot sync.
+   * Immediately generates and deploys public snapshot documents for all active teacher classes
+   * into public_absensi, public_nilai, and public_tabungan, plus Cloud Run cache invalidation,
+   * so public link previews immediately show new data.
+   */
+  async syncAllPublicSnapshots(
+    teacherUid: string,
+    workspaceData?: {
+      teacher?: TeacherProfile;
+      classes?: ClassRoom[];
+      students?: Student[];
+      sessions?: AttendanceSession[];
+      grades?: StudentGrade[];
+      savings?: SavingTransaction[];
+    }
+  ): Promise<{ syncedClasses: number; totalSnapshots: number }> {
+    if (!teacherUid) return { syncedClasses: 0, totalSnapshots: 0 };
+
+    const teacher = workspaceData?.teacher || Storage.getTeacher();
+    const classes = workspaceData?.classes || Storage.getClasses();
+    const students = workspaceData?.students || Storage.getAllStudents();
+    const sessions = workspaceData?.sessions || Storage.getAllSessions();
+    const grades = workspaceData?.grades || Storage.getAllGrades();
+    const savings = workspaceData?.savings || Storage.getAllSavings();
+
+    if (!classes || classes.length === 0) return { syncedClasses: 0, totalSnapshots: 0 };
+
+    let count = 0;
+    const nowIso = new Date().toISOString();
+
+    for (const cls of classes) {
+      try {
+        const classStudents = students.filter((s) => s.classId === cls.id);
+        const classSessions = sessions.filter((s) => s.classId === cls.id);
+        const classGrades = grades.filter((g) => g.classId === cls.id);
+        const classSavings = savings.filter(
+          (t) => t.classId === cls.id || classStudents.some((s) => s.id === t.studentId)
+        );
+
+        // Deterministic Share IDs
+        const absShareId = this.getPublicAbsensiShareId(teacherUid, cls.id);
+        const nilShareId = this.getPublicNilaiShareId(teacherUid, cls.id);
+        const tbShareId = this.getPublicTabunganShareId(teacherUid, cls.id);
+
+        const isAbsOpen = typeof window !== 'undefined'
+          ? localStorage.getItem(`pub_access_abs_${cls.id}`) === 'true'
+          : false;
+        const isNilOpen = typeof window !== 'undefined'
+          ? localStorage.getItem(`pub_access_nil_${cls.id}`) === 'true'
+          : false;
+        const isTbOpen = typeof window !== 'undefined'
+          ? localStorage.getItem(`pub_access_tb_${cls.id}`) === 'true'
+          : false;
+
+        // 1. Absensi Payload
+        const absPayload: PublicAbsensiData = {
+          shareId: absShareId,
+          classId: cls.id,
+          className: cls.namaKelas,
+          mataPelajaran: cls.mataPelajaran || teacher.mataPelajaranUtama || 'Umum',
+          schoolName: teacher.namaSekolah || 'SMK Muhammadiyah Bawang',
+          waliKelas: teacher.namaGuru || 'Guru Pengampu',
+          nip: teacher.nip || '',
+          academicYear: teacher.tahunAjaran || '2025/2026',
+          semester: teacher.semester || 'Ganjil',
+          teacherUid,
+          updatedAt: nowIso,
+          students: isAbsOpen ? classStudents.map((s) => ({
+            id: s.id,
+            no: s.no,
+            nisn: s.nisn || '',
+            nama: s.nama,
+            gender: s.gender,
+          })) : [],
+          sessions: isAbsOpen ? classSessions : [],
+          isPublicEnabled: isAbsOpen,
+          allowClassRecap: true,
+        };
+
+        // 2. Nilai Payload
+        const nilPayload: PublicNilaiData = {
+          shareId: nilShareId,
+          classId: cls.id,
+          className: cls.namaKelas,
+          mataPelajaran: cls.mataPelajaran || teacher.mataPelajaranUtama || 'Umum',
+          schoolName: teacher.namaSekolah || 'SMK Muhammadiyah Bawang',
+          waliKelas: teacher.namaGuru || 'Guru Pengampu',
+          academicYear: teacher.tahunAjaran || '2025/2026',
+          semester: teacher.semester || 'Ganjil',
+          teacherUid,
+          kkm: cls.kkm || 75,
+          updatedAt: nowIso,
+          students: isNilOpen ? classStudents.map((s) => ({
+            id: s.id,
+            no: s.no,
+            nisn: s.nisn || '',
+            nama: s.nama,
+            gender: s.gender,
+          })) : [],
+          grades: isNilOpen ? classGrades : [],
+          isPublicEnabled: isNilOpen,
+        };
+
+        // 3. Tabungan Payload
+        const tbPayload: PublicTabunganData = {
+          shareId: tbShareId,
+          classId: cls.id,
+          className: cls.namaKelas,
+          schoolName: teacher.namaSekolah || 'SMK Muhammadiyah Bawang',
+          waliKelas: teacher.namaGuru || 'Guru Pengampu',
+          academicYear: teacher.tahunAjaran || '2025/2026',
+          semester: teacher.semester || 'Ganjil',
+          teacherUid,
+          updatedAt: nowIso,
+          students: isTbOpen ? classStudents.map((s) => ({
+            id: s.id,
+            no: s.no,
+            nisn: s.nisn || '',
+            nama: s.nama,
+          })) : [],
+          savings: isTbOpen ? classSavings : [],
+          isPublicEnabled: isTbOpen,
+        };
+
+        // Broadcast to preview channels with 0ms delay immediately
+        broadcastPreviewUpdate('absensi', absShareId, cls.id, absPayload);
+        broadcastPreviewUpdate('nilai', nilShareId, cls.id, nilPayload);
+        broadcastPreviewUpdate('tabungan', tbShareId, cls.id, tbPayload);
+
+        // Write snapshots to Firestore in parallel
+        await Promise.allSettled([
+          this.publishPublicAbsensi(absPayload),
+          this.publishPublicNilai(nilPayload),
+          this.publishPublicTabungan(tbPayload),
+        ]);
+
+        count += 3;
+      } catch (clsErr) {
+        console.warn(`[FirestoreService] Error syncing public snapshot for class ${cls.id}:`, clsErr);
+      }
+    }
+
+    // Invalidate server cache
+    if (typeof window !== 'undefined') {
+      try {
+        await fetch('/api/public/cache/invalidate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({}),
+        });
+      } catch {}
+    }
+
+    return { syncedClasses: classes.length, totalSnapshots: count };
   },
 
   /**

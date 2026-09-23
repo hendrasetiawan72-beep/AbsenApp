@@ -40,14 +40,12 @@ interface PublicTabunganViewProps {
   shareId: string;
   initialNisn?: string;
   initialStudentId?: string;
-  onExitToApp?: () => void;
 }
 
 export const PublicTabunganView: React.FC<PublicTabunganViewProps> = ({
   shareId,
   initialNisn,
   initialStudentId,
-  onExitToApp,
 }) => {
   // Fast initial cache lookup for 0ms instant preview access
   const [data, setData] = useState<PublicTabunganData | null>(() => {
@@ -588,43 +586,33 @@ export const PublicTabunganView: React.FC<PublicTabunganViewProps> = ({
               <RefreshCw className="w-4 h-4" />
               <span>Muat Ulang Halaman</span>
             </button>
-            {onExitToApp && (
-              <button
-                onClick={onExitToApp}
-                className="w-full py-2 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs rounded-xl transition-colors cursor-pointer"
-              >
-                Kembali ke Aplikasi Utama
-              </button>
-            )}
           </div>
         </div>
       </div>
     );
   }
 
-  // Disabled by teacher screen
-  if (data.isPublicEnabled === false) {
+  // Tautan Privat / Terkunci (Ketika Belum Dibuka Akses Publik oleh Guru)
+  if (data.isPublicEnabled !== true) {
     return (
-      <div className="min-h-screen bg-slate-100 flex flex-col items-center justify-center p-4">
-        <div className="bg-white p-8 rounded-3xl shadow-xl border border-slate-200 text-center max-w-md w-full space-y-4">
-          <div className="w-14 h-14 bg-amber-100 text-amber-600 rounded-2xl flex items-center justify-center mx-auto">
-            <Lock className="w-7 h-7" />
+      <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center p-6 text-white text-center">
+        <div className="bg-slate-800/90 backdrop-blur-md p-8 rounded-3xl shadow-2xl border border-slate-700 text-center max-w-md w-full space-y-4">
+          <div className="w-16 h-16 bg-amber-500/20 text-amber-400 rounded-2xl flex items-center justify-center mx-auto border border-amber-500/30">
+            <Lock className="w-8 h-8" />
           </div>
-          <h3 className="text-lg font-black text-slate-900">
-            Akses Publik Tabungan Sedang Ditutup
+          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-black uppercase tracking-wider bg-rose-500/20 text-rose-300 border border-rose-500/30">
+            <span className="w-2 h-2 rounded-full bg-rose-400 animate-pulse" />
+            Tautan Privat / Terkunci
+          </div>
+          <h3 className="text-xl font-black text-white">
+            Akses Publik Tabungan Ditutup
           </h3>
-          <p className="text-xs text-slate-600 leading-relaxed">
-            Wali kelas <strong>{data.className}</strong> saat ini menonaktifkan portal publik tabungan untuk efisiensi sistem dan perlindungan data. Silakan hubungi wali kelas jika memerlukan informasi saldo tabungan.
+          <p className="text-xs text-slate-300 leading-relaxed">
+            Tautan pratinjau tabungan kelas <strong>{data.className}</strong> ini bersifat privat dan terkunci. Tautan hanya dapat diakses saat wali kelas mengaktifkan perizinan akses publik di aplikasi.
           </p>
-          {onExitToApp && (
-            <button
-              type="button"
-              onClick={onExitToApp}
-              className="mt-2 w-full py-2.5 px-4 bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold rounded-xl transition-colors cursor-pointer"
-            >
-              Buka Aplikasi Guru
-            </button>
-          )}
+          <div className="p-3 bg-slate-900/60 rounded-xl border border-slate-800 text-[11px] text-slate-400">
+            Silakan hubungi wali kelas jika memerlukan informasi buku tabungan atau mutasi saldo tabungan ananda.
+          </div>
         </div>
       </div>
     );
@@ -725,16 +713,6 @@ export const PublicTabunganView: React.FC<PublicTabunganViewProps> = ({
               <QrCode className="w-3.5 h-3.5" />
               <span className="hidden sm:inline">QR Code</span>
             </button>
-
-            {onExitToApp && (
-              <button
-                onClick={onExitToApp}
-                className="text-[11px] text-teal-200 hover:text-white underline underline-offset-4 px-2 py-1 cursor-pointer transition-colors"
-                title="Beralih ke Aplikasi Portal Guru"
-              >
-                Portal Guru
-              </button>
-            )}
           </div>
         </div>
       </header>

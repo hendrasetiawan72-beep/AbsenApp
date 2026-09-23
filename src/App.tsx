@@ -266,13 +266,30 @@ export default function App() {
       );
       return;
     }
+    const uid = auth.currentUser.uid;
     setIsCloudSaving(true);
+    setCloudStatusMsg('Menyinkronkan data browser & memperbarui link preview ke server cloud...');
     try {
+      // 1. Direct workspace push to Cloud Firestore
       const ok = await GradualSyncManager.forceSyncNow();
+
+      // 2. Synchronize all public preview snapshots (absensi, nilai, tabungan) for active classes
+      const previewSyncResult = await FirestoreService.syncAllPublicSnapshots(uid, {
+        teacher: Storage.getTeacher(),
+        classes: Storage.getClasses(),
+        students: Storage.getAllStudents(),
+        sessions: Storage.getAllSessions(),
+        grades: Storage.getAllGrades(),
+        savings: Storage.getAllSavings(),
+      });
+
       if (ok) {
-        showToast('Seluruh data di browser berhasil disinkronkan ke Cloud Firestore!', 'success');
+        showToast(
+          `Semua data browser dan ${previewSyncResult.totalSnapshots} link preview langsung terhubung & tersinkronkan ke Cloud!`,
+          'success'
+        );
       } else {
-        showToast('Data tersimpan aman di browser.', 'info');
+        showToast('Data tersimpan aman di browser & link preview telah diperbarui.', 'info');
       }
     } catch (err: any) {
       showToast('Data tersimpan di browser. Sinkron ke cloud tertunda: ' + (err?.message || 'koneksi'), 'info');
@@ -294,15 +311,33 @@ export default function App() {
       if (userData.isNewUser) {
         showToast('Data di Cloud Firestore masih kosong. Data lokal Anda tetap aktif.', 'info');
       } else {
-        setTeacher(userData.teacher);
-        setClasses(userData.classes);
+        // Immediate sync to Storage (browser storage)
+        if (userData.teacher) Storage.setTeacher(userData.teacher);
+        if (Array.isArray(userData.classes)) Storage.setClasses(userData.classes);
+        if (userData.activeClassId) Storage.setActiveClassId(userData.activeClassId);
+        if (Array.isArray(userData.students)) Storage.setAllStudents(userData.students);
+        if (Array.isArray(userData.sessions)) Storage.setAllSessions(userData.sessions);
+        if (Array.isArray(userData.grades)) Storage.setAllGrades(userData.grades);
+        if (Array.isArray(userData.agendas)) Storage.setAllAgendas(userData.agendas);
+        if (Array.isArray((userData as any).savings)) Storage.setAllSavings((userData as any).savings);
+
+        // Immediate React states update so everything shows immediately in UI
+        if (userData.teacher) setTeacher(userData.teacher);
+        if (Array.isArray(userData.classes)) setClasses(userData.classes);
         if (userData.activeClassId) setActiveClassId(userData.activeClassId);
-        setAllStudents(userData.students);
-        setAllSessions(userData.sessions);
-        setAllGrades(userData.grades);
-        if (userData.agendas) setAllAgendas(userData.agendas);
-        if ((userData as any).savings) setAllSavings((userData as any).savings);
-        showToast('Data berhasil disinkronisasi & diambil dari Cloud Firestore!', 'success');
+        if (Array.isArray(userData.students)) setAllStudents(userData.students);
+        if (Array.isArray(userData.sessions)) setAllSessions(userData.sessions);
+        if (Array.isArray(userData.grades)) setAllGrades(userData.grades);
+        if (Array.isArray(userData.agendas)) setAllAgendas(userData.agendas);
+        if (Array.isArray((userData as any).savings)) setAllSavings((userData as any).savings);
+
+        // Mark local as completely synced with cloud
+        GradualSyncManager.markCloudSynced();
+
+        // Broadcast to all preview tabs/windows so open links show fresh pulled data instantly
+        FirestoreService.broadcastAllLocalPreviews(uid);
+
+        showToast('Data dari Cloud Firestore berhasil ditarik & langsung tampil di aplikasi!', 'success');
       }
     } catch (error: any) {
       console.error('[App] Error manual sync from Cloud Firestore:', error);
@@ -1403,13 +1438,6 @@ export default function App() {
           shareId={publicShareId}
           initialNisn={publicNisn || undefined}
           initialStudentId={publicStudentId || undefined}
-          onExitToApp={() => {
-            const newUrl = window.location.origin + window.location.pathname;
-            window.history.pushState({}, '', newUrl);
-            setPublicShareId(null);
-            setPublicNisn(null);
-            setPublicStudentId(null);
-          }}
         />
       </>
     );
@@ -1424,13 +1452,6 @@ export default function App() {
           shareId={publicAbsenShareId}
           initialNisn={publicNisn || undefined}
           initialStudentId={publicStudentId || undefined}
-          onExitToApp={() => {
-            const newUrl = window.location.origin + window.location.pathname;
-            window.history.pushState({}, '', newUrl);
-            setPublicAbsenShareId(null);
-            setPublicNisn(null);
-            setPublicStudentId(null);
-          }}
         />
       </>
     );
@@ -1445,13 +1466,6 @@ export default function App() {
           shareId={publicNilaiShareId}
           initialNisn={publicNisn || undefined}
           initialStudentId={publicStudentId || undefined}
-          onExitToApp={() => {
-            const newUrl = window.location.origin + window.location.pathname;
-            window.history.pushState({}, '', newUrl);
-            setPublicNilaiShareId(null);
-            setPublicNisn(null);
-            setPublicStudentId(null);
-          }}
         />
       </>
     );
