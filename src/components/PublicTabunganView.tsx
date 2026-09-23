@@ -602,6 +602,34 @@ export const PublicTabunganView: React.FC<PublicTabunganViewProps> = ({
     );
   }
 
+  // Disabled by teacher screen
+  if (data.isPublicEnabled === false) {
+    return (
+      <div className="min-h-screen bg-slate-100 flex flex-col items-center justify-center p-4">
+        <div className="bg-white p-8 rounded-3xl shadow-xl border border-slate-200 text-center max-w-md w-full space-y-4">
+          <div className="w-14 h-14 bg-amber-100 text-amber-600 rounded-2xl flex items-center justify-center mx-auto">
+            <Lock className="w-7 h-7" />
+          </div>
+          <h3 className="text-lg font-black text-slate-900">
+            Akses Publik Tabungan Sedang Ditutup
+          </h3>
+          <p className="text-xs text-slate-600 leading-relaxed">
+            Wali kelas <strong>{data.className}</strong> saat ini menonaktifkan portal publik tabungan untuk efisiensi sistem dan perlindungan data. Silakan hubungi wali kelas jika memerlukan informasi saldo tabungan.
+          </p>
+          {onExitToApp && (
+            <button
+              type="button"
+              onClick={onExitToApp}
+              className="mt-2 w-full py-2.5 px-4 bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold rounded-xl transition-colors cursor-pointer"
+            >
+              Buka Aplikasi Guru
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   // PIN Unlock Screen if teacher locked with PIN
   if (!isPinUnlocked) {
     return (

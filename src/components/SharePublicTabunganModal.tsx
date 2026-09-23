@@ -43,6 +43,7 @@ export const SharePublicTabunganModal: React.FC<SharePublicTabunganModalProps> =
   const [copiedClassLink, setCopiedClassLink] = useState(false);
   const [copiedStudentId, setCopiedStudentId] = useState<string | null>(null);
   const [isPublishing, setIsPublishing] = useState(false);
+  const [isTogglingAccess, setIsTogglingAccess] = useState(false);
   const [isPublicEnabled, setIsPublicEnabled] = useState(true);
   const [allowClassRecap, setAllowClassRecap] = useState(true);
   const [pinRequired, setPinRequired] = useState(false);
@@ -264,6 +265,52 @@ export const SharePublicTabunganModal: React.FC<SharePublicTabunganModalProps> =
     }
   };
 
+  // Toggle Buka / Tutup Akses Publik Tabungan Secara Manual (Hemat Kuota Cloud)
+  const handleTogglePublicAccess = async () => {
+    const nextState = !isPublicEnabled;
+    setIsPublicEnabled(nextState);
+    setIsTogglingAccess(true);
+
+    try {
+      const publicPayload: PublicTabunganData = {
+        shareId,
+        classId: currentClass.id,
+        className: currentClass.namaKelas,
+        schoolName: teacher.namaSekolah || 'SMK Muhammadiyah Bawang',
+        waliKelas: teacher.namaGuru || 'Wali Kelas',
+        academicYear: teacher.tahunAjaran || '2025/2026',
+        semester: teacher.semester || 'Ganjil',
+        teacherUid: currentUid,
+        updatedAt: new Date().toISOString(),
+        students: students.map((s) => ({
+          id: s.id,
+          no: s.no,
+          nisn: s.nisn || '',
+          nama: s.nama,
+          gender: s.gender,
+        })),
+        savings: savings.filter((tx) => tx.classId === currentClass.id),
+        isPublicEnabled: nextState,
+        allowClassRecap,
+        pinRequired,
+        accessPin: pinRequired ? accessPin : undefined,
+      };
+
+      await FirestoreService.publishPublicTabungan(publicPayload);
+
+      if (nextState) {
+        onShowToast('Tautan tabungan berhasil DIBUKA. Orang tua dapat memeriksa saldo tabungan.', 'success');
+      } else {
+        onShowToast('Tautan tabungan berhasil DITUTUP. Akses luar dinonaktifkan (Hemat Kuota Cloud).', 'info');
+      }
+    } catch (err: any) {
+      console.error('Error toggling tabungan access:', err);
+      onShowToast('Gagal mengubah status akses tabungan: ' + (err?.message || 'Koneksi error'), 'error');
+    } finally {
+      setIsTogglingAccess(false);
+    }
+  };
+
   const filteredStudents = students.filter(
     (s) =>
       s.nama.toLowerCase().includes(searchStudent.toLowerCase()) ||
@@ -338,6 +385,79 @@ export const SharePublicTabunganModal: React.FC<SharePublicTabunganModalProps> =
               <RefreshCw className={`w-3.5 h-3.5 ${isPublishing ? 'animate-spin' : ''}`} />
               <span>{isPublishing ? 'Menerbitkan...' : 'Terbitkan / Sinkronkan Cloud'}</span>
             </button>
+          </div>
+
+          {/* Quick Control: Buka / Tutup Akses Publik Tabungan Manual (Hemat Kuota Cloud) */}
+          <div
+            className={`p-4 rounded-2xl border transition-all ${
+              isPublicEnabled
+                ? 'bg-emerald-50/90 border-emerald-300/80 shadow-xs'
+                : 'bg-rose-50/90 border-rose-300/80 shadow-xs'
+            }`}
+          >
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="flex items-start gap-3">
+                <div
+                  className={`p-2.5 rounded-xl shrink-0 ${
+                    isPublicEnabled
+                      ? 'bg-emerald-100 text-emerald-700'
+                      : 'bg-rose-100 text-rose-700'
+                  }`}
+                >
+                  {isPublicEnabled ? <Globe className="w-5 h-5" /> : <Lock className="w-5 h-5" />}
+                </div>
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-extrabold text-sm text-slate-800">
+                      Status Akses Tabungan:
+                    </span>
+                    <span
+                      className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-black uppercase tracking-wider ${
+                        isPublicEnabled
+                          ? 'bg-emerald-600 text-white'
+                          : 'bg-rose-600 text-white'
+                      }`}
+                    >
+                      <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
+                      {isPublicEnabled ? 'Dibuka (Online)' : 'Ditutup (Hemat Kuota)'}
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-600 mt-1">
+                    {isPublicEnabled
+                      ? 'Tautan tabungan sedang aktif dan dapat diakses orang tua. Tutup tautan jika sesi tabungan selesai untuk membatasi kuota harian Cloud.'
+                      : 'Tautan sedang ditutup. Orang tua yang membuka link ini akan melihat halaman offline sehingga hemat kuota Firestore 100%.'}
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={handleTogglePublicAccess}
+                disabled={isTogglingAccess || isPublishing}
+                className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer flex items-center justify-center gap-2 shrink-0 ${
+                  isPublicEnabled
+                    ? 'bg-rose-600 hover:bg-rose-700 active:bg-rose-800 text-white'
+                    : 'bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white'
+                } disabled:opacity-50`}
+              >
+                {isTogglingAccess ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                    <span>Menyimpan...</span>
+                  </>
+                ) : isPublicEnabled ? (
+                  <>
+                    <Lock className="w-4 h-4" />
+                    <span>Tutup Tautan Sekarang</span>
+                  </>
+                ) : (
+                  <>
+                    <Globe className="w-4 h-4" />
+                    <span>Buka Tautan Sekarang</span>
+                  </>
+                )}
+              </button>
+            </div>
           </div>
 
           {/* Section 1: Main Class Link */}

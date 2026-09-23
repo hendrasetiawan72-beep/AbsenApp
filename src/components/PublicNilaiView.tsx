@@ -181,22 +181,43 @@ export const PublicNilaiView: React.FC<PublicNilaiViewProps> = ({
       }
     });
 
-    // 2. Cloud Firestore persistent real-time streaming
-    const unsubscribe = FirestoreService.subscribePublicNilai(
-      shareId,
-      (updatedData) => {
-        applyDataUpdate(updatedData);
-      },
-      (err) => {
-        setIsLoading(false);
-        setErrorMsg('Gagal memuat data nilai dari server cloud.');
-        console.error('Subscription public nilai error:', err);
+    // 2. Fetch snapshot with 1x read only (NO onSnapshot) - Cloud Run In-Memory Cache first, fallback to Firestore 1x getDoc
+    let isCancelled = false;
+    const fetchSnapshot = async () => {
+      try {
+        // Cek Cloud Run cache endpoint terlebih dahulu (0 Firestore reads jika cache hit)
+        const res = await fetch(`/api/public/nilai/${encodeURIComponent(shareId)}`);
+        if (res.ok) {
+          const snapData = await res.json();
+          if (!isCancelled) {
+            applyDataUpdate(snapData);
+            return;
+          }
+        }
+      } catch (e) {
+        console.warn('[PublicNilaiView] Cloud Run cache API unavailable, fallback to direct Firestore 1x getDoc');
       }
-    );
+
+      // Fallback: 1x getDoc langsung dari Firestore (TIDAK MENGGUNAKAN onSnapshot)
+      try {
+        const fallbackData = await FirestoreService.getPublicNilai(shareId);
+        if (!isCancelled) {
+          applyDataUpdate(fallbackData);
+        }
+      } catch (err: any) {
+        if (!isCancelled) {
+          setIsLoading(false);
+          setErrorMsg('Gagal memuat data nilai dari server cloud.');
+          console.error('[PublicNilaiView] One-time fetch error:', err);
+        }
+      }
+    };
+
+    fetchSnapshot();
 
     return () => {
+      isCancelled = true;
       unsubChannel();
-      unsubscribe();
     };
   }, [shareId, initialNisn, initialStudentId]);
 

@@ -23,6 +23,118 @@ async function startServer() {
     });
   });
 
+  // --- IN-MEMORY CACHE CLOUD RUN UNTUK PUBLIC SHARE NILAI ---
+  interface CacheEntry<T> {
+    data: T;
+    cachedAt: number;
+  }
+  const publicShareCache = new Map<string, CacheEntry<any>>();
+  const CACHE_TTL_MS = 5 * 60 * 1000; // 5 menit TTL
+
+  let serverFirestoreDb: any = null;
+  async function getServerDb() {
+    if (serverFirestoreDb) return serverFirestoreDb;
+    try {
+      const { initializeApp, getApps } = await import('firebase/app');
+      const { getFirestore } = await import('firebase/firestore');
+      const cfgPath = path.join(process.cwd(), 'firebase-applet-config.json');
+      if (fs.existsSync(cfgPath)) {
+        const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
+        const app = getApps().length ? getApps()[0] : initializeApp(cfg, 'server-firestore-cache');
+        serverFirestoreDb = getFirestore(app, cfg.firestoreDatabaseId || '(default)');
+        return serverFirestoreDb;
+      }
+    } catch (e) {
+      console.warn('[Server Firestore] Init warning:', e);
+    }
+    return null;
+  }
+
+  // 1. Ambil Data Share Nilai (Cache-First Cloud Run)
+  app.get('/api/public/nilai/:shareId', async (req, res) => {
+    const { shareId } = req.params;
+    if (!shareId) {
+      return res.status(400).json({ error: 'Share ID is required' });
+    }
+
+    const now = Date.now();
+    const cached = publicShareCache.get(shareId);
+
+    // Cek In-Memory Cache (Cache Hit -> 0 Firestore Reads)
+    if (cached && now - cached.cachedAt < CACHE_TTL_MS) {
+      res.setHeader('Cache-Control', 'public, max-age=300, s-maxage=600');
+      res.setHeader('X-Cache', 'HIT');
+      return res.json(cached.data);
+    }
+
+    // Cache Miss -> Baca TEPAT 1 dokumen dari Firestore
+    try {
+      const db = await getServerDb();
+      if (!db) {
+        return res.status(503).json({ error: 'Firestore server instance unavailable' });
+      }
+
+      const { doc, getDoc } = await import('firebase/firestore');
+      let docSnap = await getDoc(doc(db, 'public_nilai', shareId));
+      if (!docSnap.exists()) {
+        docSnap = await getDoc(doc(db, 'nilai_shares', shareId));
+      }
+
+      if (!docSnap.exists()) {
+        return res.status(404).json({ error: 'Data share nilai tidak ditemukan' });
+      }
+
+      const docData = docSnap.data();
+
+      // Jika akses link ditutup oleh guru: kembalikan payload ringan tanpa daftar nilai/siswa
+      if (docData.isPublicEnabled === false) {
+        const closedData = {
+          shareId,
+          className: docData.className,
+          mataPelajaran: docData.mataPelajaran,
+          schoolName: docData.schoolName,
+          waliKelas: docData.waliKelas,
+          academicYear: docData.academicYear,
+          isPublicEnabled: false,
+          updatedAt: docData.updatedAt,
+          students: [],
+          grades: [],
+        };
+        publicShareCache.set(shareId, {
+          data: closedData,
+          cachedAt: now,
+        });
+        res.setHeader('Cache-Control', 'public, max-age=300, s-maxage=600');
+        res.setHeader('X-Cache', 'MISS');
+        return res.json(closedData);
+      }
+
+      // Simpan ke in-memory cache Cloud Run
+      publicShareCache.set(shareId, {
+        data: docData,
+        cachedAt: now,
+      });
+
+      res.setHeader('Cache-Control', 'public, max-age=300, s-maxage=600');
+      res.setHeader('X-Cache', 'MISS');
+      return res.json(docData);
+    } catch (error: any) {
+      console.error('[Public Nilai API] Error fetching snapshot:', error);
+      return res.status(500).json({ error: error.message || 'Gagal mengambil data snapshot nilai' });
+    }
+  });
+
+  // 2. Invalidate Cache ketika Guru Memperbarui Snapshot
+  app.post('/api/public/nilai/invalidate', (req, res) => {
+    const { shareId } = req.body;
+    if (shareId) {
+      publicShareCache.delete(shareId);
+    } else {
+      publicShareCache.clear();
+    }
+    return res.json({ success: true, message: 'Cache berhasil di-invalidate' });
+  });
+
   // AI Gemini API - Generate Modul Deep Learning (Full Prompt)
   app.post('/api/ai/generate-modul', async (req, res) => {
     try {

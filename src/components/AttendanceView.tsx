@@ -705,36 +705,14 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
               <span>+ Pertemuan</span>
             </button>
 
-            {/* Tombol Simpan Presensi ke Cloud (Save) di Top Bar */}
-            {activeSession && (
-              <button
-                type="button"
-                id="btn-top-save-attendance"
-                onClick={() => handleSaveToCloud()}
-                disabled={isLocalSaving || isCloudSaving}
-                className={`inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold rounded-xl shadow-xs transition-all cursor-pointer disabled:opacity-50 ${
-                  hasUnsavedChanges
-                    ? 'bg-emerald-600 hover:bg-emerald-700 text-white ring-2 ring-emerald-400/60'
-                    : 'bg-emerald-700 hover:bg-emerald-800 text-white'
-                }`}
-                title="Simpan Hasil Presensi ke Cloud Firestore"
-              >
-                {isLocalSaving || isCloudSaving ? (
-                  <>
-                    <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                    <span>Menyimpan...</span>
-                  </>
-                ) : (
-                  <>
-                    <Save className="w-3.5 h-3.5 text-white" />
-                    <span>Simpan (Save)</span>
-                    {hasUnsavedChanges && (
-                      <span className="w-2 h-2 rounded-full bg-amber-300 ml-0.5 animate-ping" title="Ada perubahan belum tersimpan" />
-                    )}
-                  </>
-                )}
-              </button>
-            )}
+            {/* Status Penyimpanan Otomatis di Browser */}
+            <div
+              className="hidden sm:inline-flex items-center gap-1.5 px-3 py-2 bg-emerald-50 text-emerald-800 border border-emerald-200/80 rounded-xl text-xs font-semibold"
+              title="Presensi tersimpan otomatis di browser. Sinkronkan ke cloud lewat tombol di bilah atas saat selesai."
+            >
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+              <span>Tersimpan di Browser</span>
+            </div>
 
             {/* Tombol Link Preview Orang Tua Real-Time (Absen Harian & Rekap) */}
             <button
@@ -1398,25 +1376,10 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
                 </div>
 
                 <div className="flex flex-wrap items-center gap-3 pt-3 lg:pt-0 border-t lg:border-t-0 border-slate-100">
-                  <button
-                    type="button"
-                    id="btn-save-attendance-bottom"
-                    onClick={() => handleSaveToCloud()}
-                    disabled={isLocalSaving || isCloudSaving}
-                    className="inline-flex items-center justify-center gap-2.5 px-6 py-3.5 bg-emerald-600 hover:bg-emerald-700 active:scale-98 text-white font-black text-sm rounded-xl shadow-md hover:shadow-lg transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {isLocalSaving || isCloudSaving ? (
-                      <>
-                        <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                        <span>Menyimpan ke Cloud Firestore...</span>
-                      </>
-                    ) : (
-                      <>
-                        <Save className="w-5 h-5 text-white" />
-                        <span>Simpan Presensi ke Cloud (Save)</span>
-                      </>
-                    )}
-                  </button>
+                  <div className="inline-flex items-center gap-2 px-4 py-3 bg-emerald-50 text-emerald-900 border border-emerald-200/90 rounded-xl text-xs font-semibold">
+                    <Check className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <span>Presensi otomatis tersimpan di browser. Sinkronkan ke Cloud di bilah atas.</span>
+                  </div>
 
                   <button
                     type="button"
@@ -1457,25 +1420,10 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                id="btn-save-matrix-top"
-                onClick={() => handleSaveToCloud()}
-                disabled={isLocalSaving || isCloudSaving}
-                className="inline-flex items-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 active:scale-98 text-white text-xs font-bold rounded-xl shadow-xs transition-colors cursor-pointer disabled:opacity-50"
-              >
-                {isLocalSaving || isCloudSaving ? (
-                  <>
-                    <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                    <span>Menyimpan...</span>
-                  </>
-                ) : (
-                  <>
-                    <Save className="w-3.5 h-3.5" />
-                    <span>Simpan ke Cloud (Save)</span>
-                  </>
-                )}
-              </button>
+              <div className="inline-flex items-center gap-1.5 px-3 py-2 bg-emerald-50 text-emerald-800 border border-emerald-200/80 rounded-xl text-xs font-semibold">
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                <span>Tersimpan Otomatis</span>
+              </div>
 
               <button
                 type="button"
@@ -2231,50 +2179,11 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
               </div>
             </div>
 
-            <button
-              type="button"
-              id="btn-save-matrix-bottom"
-              onClick={() => handleSaveToCloud()}
-              disabled={isLocalSaving || isCloudSaving}
-              className="inline-flex items-center gap-2 px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 active:scale-98 text-white text-xs font-bold rounded-xl shadow-xs transition-colors cursor-pointer disabled:opacity-50"
-            >
-              {isLocalSaving || isCloudSaving ? (
-                <>
-                  <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  <span>Menyimpan ke Cloud...</span>
-                </>
-              ) : (
-                <>
-                  <Save className="w-3.5 h-3.5" />
-                  <span>Simpan Rekap ke Cloud (Save)</span>
-                </>
-              )}
-            </button>
+            <div className="inline-flex items-center gap-2 px-4 py-2.5 bg-emerald-50 text-emerald-800 border border-emerald-200 rounded-xl text-xs font-semibold">
+              <Check className="w-4 h-4 text-emerald-600" />
+              <span>Matriks tersimpan otomatis di browser</span>
+            </div>
           </div>
-        </div>
-      )}
-
-      {/* Floating Save Reminder for long tables when user has made changes */}
-      {hasUnsavedChanges && (
-        <div className="fixed bottom-5 right-5 z-40 shadow-xl rounded-2xl bg-slate-900/95 text-white p-3 sm:px-4 sm:py-3 border border-slate-700 backdrop-blur-md flex items-center gap-3">
-          <div className="w-2.5 h-2.5 rounded-full bg-amber-400 animate-ping shrink-0" />
-          <div className="text-xs">
-            <span className="font-bold block text-slate-100">Presensi belum disimpan</span>
-            <span className="text-[11px] text-slate-400 hidden sm:inline">Klik Save agar data tersimpan di Cloud</span>
-          </div>
-          <button
-            type="button"
-            onClick={() => handleSaveToCloud()}
-            disabled={isLocalSaving || isCloudSaving}
-            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-emerald-500 hover:bg-emerald-600 active:scale-95 text-white text-xs font-bold rounded-xl transition-all cursor-pointer shrink-0"
-          >
-            {isLocalSaving || isCloudSaving ? (
-              <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
-            ) : (
-              <Save className="w-3.5 h-3.5" />
-            )}
-            <span>Save ke Cloud</span>
-          </button>
         </div>
       )}
       {/* WhatsApp Share Modal */}

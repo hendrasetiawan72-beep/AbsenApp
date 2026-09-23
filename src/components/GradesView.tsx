@@ -685,31 +685,16 @@ export const GradesView: React.FC<GradesViewProps> = ({
             </p>
           </div>
 
-          {/* Action Buttons: Cloud Save & Export */}
+          {/* Action Buttons: Status & Export */}
           <div className="flex items-center gap-2.5 flex-wrap">
-            <button
-              type="button"
-              onClick={handleSaveToCloud}
-              disabled={isSaving}
-              className={`inline-flex items-center gap-2 px-4 py-2.5 text-xs font-black rounded-xl shadow-xs transition-all cursor-pointer ${
-                hasUnsavedChanges
-                  ? 'bg-amber-600 hover:bg-amber-700 text-white ring-4 ring-amber-100 shadow-md animate-pulse'
-                  : 'bg-indigo-600 hover:bg-indigo-700 text-white'
-              } disabled:opacity-50 disabled:cursor-not-allowed`}
-              title="Simpan perubahan nilai dan keterangan kolom ke Cloud Firestore"
+            {/* Status Penyimpanan Otomatis di Browser */}
+            <div
+              className="inline-flex items-center gap-1.5 px-3 py-2 bg-emerald-50 text-emerald-800 border border-emerald-200/80 rounded-xl text-xs font-semibold"
+              title="Nilai tersimpan otomatis di browser. Sinkronkan ke cloud lewat tombol di bilah atas saat selesai."
             >
-              {isSaving ? (
-                <>
-                  <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  <span>Menyimpan ke Cloud...</span>
-                </>
-              ) : (
-                <>
-                  <CloudUpload className="w-4 h-4" />
-                  <span>Simpan Penilaian ke Cloud</span>
-                </>
-              )}
-            </button>
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+              <span>Tersimpan di Browser</span>
+            </div>
 
             {isAutoSyncing && (
               <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-50 border border-blue-200 text-blue-800 text-[11px] font-bold">
@@ -2569,12 +2554,14 @@ export const GradesView: React.FC<GradesViewProps> = ({
                 type="button"
                 onClick={() => {
                   setIsHeaderModalOpen(false);
-                  handleSaveToCloud();
+                  Storage.setGradeHeaders(classId, columnHeaders);
+                  setHasUnsavedChanges(false);
+                  if (onShowToast) onShowToast('Keterangan kolom berhasil disimpan di browser', 'success');
                 }}
                 className="px-4 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-xs transition-colors cursor-pointer flex items-center gap-1.5"
               >
-                <Save className="w-3.5 h-3.5" />
-                <span>Simpan Perubahan ke Cloud</span>
+                <Check className="w-3.5 h-3.5" />
+                <span>Simpan Keterangan</span>
               </button>
             </div>
           </div>

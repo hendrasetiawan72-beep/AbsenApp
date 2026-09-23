@@ -49,6 +49,7 @@ export const SharePublicNilaiModal: React.FC<SharePublicNilaiModalProps> = ({
   currentUid,
 }) => {
   const [isPublishing, setIsPublishing] = useState<boolean>(false);
+  const [isTogglingAccess, setIsTogglingAccess] = useState<boolean>(false);
   const [lastPublishedAt, setLastPublishedAt] = useState<string | null>(null);
   const [copiedClassLink, setCopiedClassLink] = useState<boolean>(false);
   const [copiedStudentId, setCopiedStudentId] = useState<string | null>(null);
@@ -278,6 +279,13 @@ export const SharePublicNilaiModal: React.FC<SharePublicNilaiModalProps> = ({
 
       await FirestoreService.publishPublicNilai(payload);
 
+      // Invalidate cache di Cloud Run server agar pembacaan berikutnya segera mengambil snapshot terbaru
+      fetch('/api/public/nilai/invalidate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ shareId }),
+      }).catch(() => {});
+
       const nowStr = new Date().toLocaleTimeString('id-ID', {
         hour: '2-digit',
         minute: '2-digit',
@@ -302,6 +310,95 @@ export const SharePublicNilaiModal: React.FC<SharePublicNilaiModalProps> = ({
       }
     } finally {
       if (!options?.silent) setIsPublishing(false);
+    }
+  };
+
+  // Toggle Buka / Tutup Akses Publik Secara Manual (Hemat Kuota Cloud)
+  const handleTogglePublicAccess = async () => {
+    const nextState = !isPublicEnabled;
+    setIsPublicEnabled(nextState);
+    setIsTogglingAccess(true);
+
+    try {
+      const classStudents = students.map((st) => ({
+        id: st.id,
+        no: st.no,
+        nisn: st.nisn || '',
+        nama: st.nama,
+        gender: st.gender,
+      }));
+
+      const columnHeaders =
+        Storage.getGradeHeaders(currentClass.id) ||
+        getDefaultGradeHeaders(
+          (teacher.semester as 'Ganjil' | 'Genap') || 'Ganjil',
+          teacher.tahunAjaran || '2025/2026'
+        );
+
+      const normalizedGrades = grades
+        .filter((g) => g.classId === currentClass.id)
+        .map((g) => {
+          const m = g.monthlyGrades || {};
+          return {
+            ...g,
+            formatif1: g.formatif1 ?? (m['m0_c0'] !== undefined ? Number(m['m0_c0']) : null),
+            formatif2: g.formatif2 ?? (m['m0_c1'] !== undefined ? Number(m['m0_c1']) : null),
+            formatif3: g.formatif3 ?? (m['m0_c2'] !== undefined ? Number(m['m0_c2']) : null),
+            formatif4: g.formatif4 ?? (m['m0_c3'] !== undefined ? Number(m['m0_c3']) : null),
+            formatif5: g.formatif5 ?? (m['m1_c0'] !== undefined ? Number(m['m1_c0']) : null),
+            formatif6: g.formatif6 ?? (m['m1_c1'] !== undefined ? Number(m['m1_c1']) : null),
+            formatif7: g.formatif7 ?? (m['m1_c2'] !== undefined ? Number(m['m1_c2']) : null),
+            formatif8: g.formatif8 ?? (m['m1_c3'] !== undefined ? Number(m['m1_c3']) : null),
+            sumatifTengah:
+              g.sumatifTengah ??
+              (m['sumatif_tengah'] !== undefined ? Number(m['sumatif_tengah']) : null),
+            sumatifAkhir:
+              g.sumatifAkhir ??
+              (m['sumatif_akhir'] !== undefined ? Number(m['sumatif_akhir']) : null),
+            monthlyGrades: m,
+          };
+        });
+
+      const payload: PublicNilaiData = {
+        shareId,
+        classId: currentClass.id,
+        className: currentClass.namaKelas,
+        mataPelajaran: currentClass.mataPelajaran || teacher.mataPelajaranUtama || 'Pelajaran Umum',
+        schoolName: teacher.namaSekolah || 'SMK Muhammadiyah Bawang',
+        waliKelas: teacher.namaGuru || 'Guru Pengampu',
+        nip: teacher.nip || '',
+        academicYear: teacher.tahunAjaran || '2025/2026',
+        semester: teacher.semester || 'Ganjil',
+        kkm,
+        teacherUid: currentUid,
+        updatedAt: new Date().toISOString(),
+        students: classStudents,
+        grades: normalizedGrades,
+        columnHeaders,
+        isPublicEnabled: nextState,
+        pinRequired,
+        accessPin: pinRequired ? accessPin : undefined,
+        allowClassRecap,
+      };
+
+      await FirestoreService.publishPublicNilai(payload);
+
+      fetch('/api/public/nilai/invalidate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ shareId }),
+      }).catch(() => {});
+
+      if (nextState) {
+        onShowToast('Tautan publik berhasil DIBUKA. Siswa dan orang tua sekarang dapat mengakses nilai.', 'success');
+      } else {
+        onShowToast('Tautan publik berhasil DITUTUP. Akses luar dihentikan untuk menghemat kuota Cloud.', 'info');
+      }
+    } catch (err: any) {
+      console.error('Error toggling access:', err);
+      onShowToast('Gagal mengubah status akses: ' + (err?.message || 'Koneksi gagal'), 'error');
+    } finally {
+      setIsTogglingAccess(false);
     }
   };
 
@@ -367,6 +464,79 @@ export const SharePublicNilaiModal: React.FC<SharePublicNilaiModalProps> = ({
               <RefreshCw className={`w-3.5 h-3.5 ${isPublishing ? 'animate-spin' : ''}`} />
               <span>{isPublishing ? 'Menyinkronkan...' : 'Sinkronkan / Update Nilai'}</span>
             </button>
+          </div>
+
+          {/* Quick Control: Buka / Tutup Akses Publik Manual (Hemat Kuota Cloud) */}
+          <div
+            className={`p-4 rounded-2xl border transition-all ${
+              isPublicEnabled
+                ? 'bg-emerald-50/90 border-emerald-300/80 shadow-xs'
+                : 'bg-rose-50/90 border-rose-300/80 shadow-xs'
+            }`}
+          >
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="flex items-start gap-3">
+                <div
+                  className={`p-2.5 rounded-xl shrink-0 ${
+                    isPublicEnabled
+                      ? 'bg-emerald-100 text-emerald-700'
+                      : 'bg-rose-100 text-rose-700'
+                  }`}
+                >
+                  {isPublicEnabled ? <Globe className="w-5 h-5" /> : <Lock className="w-5 h-5" />}
+                </div>
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-extrabold text-sm text-slate-800">
+                      Status Akses Publik:
+                    </span>
+                    <span
+                      className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-black uppercase tracking-wider ${
+                        isPublicEnabled
+                          ? 'bg-emerald-600 text-white'
+                          : 'bg-rose-600 text-white'
+                      }`}
+                    >
+                      <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
+                      {isPublicEnabled ? 'Dibuka (Online)' : 'Ditutup (Hemat Kuota)'}
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-600 mt-1">
+                    {isPublicEnabled
+                      ? 'Tautan sedang aktif dan dapat diakses siswa/orang tua. Tutup tautan jika jam penilaian usai guna menghemat kuota harian Cloud.'
+                      : 'Tautan sedang ditutup. Siswa/orang tua yang membuka link ini akan melihat halaman offline sehingga hemat kuota Firestore 100%.'}
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={handleTogglePublicAccess}
+                disabled={isTogglingAccess || isPublishing}
+                className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer flex items-center justify-center gap-2 shrink-0 ${
+                  isPublicEnabled
+                    ? 'bg-rose-600 hover:bg-rose-700 active:bg-rose-800 text-white'
+                    : 'bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white'
+                } disabled:opacity-50`}
+              >
+                {isTogglingAccess ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                    <span>Menyimpan...</span>
+                  </>
+                ) : isPublicEnabled ? (
+                  <>
+                    <Lock className="w-4 h-4" />
+                    <span>Tutup Tautan Sekarang</span>
+                  </>
+                ) : (
+                  <>
+                    <Globe className="w-4 h-4" />
+                    <span>Buka Tautan Sekarang</span>
+                  </>
+                )}
+              </button>
+            </div>
           </div>
 
           {/* Section 1: Main Class Link */}

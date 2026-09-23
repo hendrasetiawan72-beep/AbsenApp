@@ -322,27 +322,14 @@ export const TabunganView: React.FC<TabunganViewProps> = ({
               <ChevronDown className="w-4 h-4 text-slate-500 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
             </div>
 
-            {/* Cloud Save Button */}
-            <button
-              id="btn-save-savings-cloud"
-              onClick={onSaveToCloud}
-              disabled={isSavingCloud}
-              className={`py-2.5 px-3.5 rounded-xl font-bold text-xs sm:text-sm flex items-center gap-2 transition-all cursor-pointer shadow-xs ${
-                hasUnsavedCloudChanges
-                  ? 'bg-amber-500 hover:bg-amber-600 text-white animate-pulse'
-                  : 'bg-indigo-600 hover:bg-indigo-700 text-white'
-              }`}
-              title="Simpan seluruh transaksi ke cloud Firebase"
+            {/* Status Penyimpanan Otomatis di Browser */}
+            <div
+              className="inline-flex items-center gap-1.5 px-3 py-2 bg-emerald-50 text-emerald-800 border border-emerald-200/80 rounded-xl text-xs font-semibold"
+              title="Tabungan tersimpan otomatis di browser. Sinkronkan ke cloud lewat tombol di bilah atas saat selesai."
             >
-              <Cloud className={`w-4 h-4 ${isSavingCloud ? 'animate-spin' : ''}`} />
-              <span>
-                {isSavingCloud
-                  ? 'Menyimpan...'
-                  : hasUnsavedCloudChanges
-                  ? 'Simpan Perubahan ke Cloud'
-                  : 'Simpan ke Cloud'}
-              </span>
-            </button>
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+              <span>Tersimpan di Browser</span>
+            </div>
 
             {/* Cloud Real-Time Status Badge */}
             {lastCloudSavedAt && !hasUnsavedCloudChanges && (

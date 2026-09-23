@@ -46,6 +46,7 @@ export const SharePublicAbsensiModal: React.FC<SharePublicAbsensiModalProps> = (
   const [copiedClassLink, setCopiedClassLink] = useState(false);
   const [copiedStudentId, setCopiedStudentId] = useState<string | null>(null);
   const [isPublishing, setIsPublishing] = useState(false);
+  const [isTogglingAccess, setIsTogglingAccess] = useState(false);
   const [isPublicEnabled, setIsPublicEnabled] = useState(true);
   const [allowClassRecap, setAllowClassRecap] = useState(true);
   const [pinRequired, setPinRequired] = useState(false);
@@ -306,6 +307,57 @@ export const SharePublicAbsensiModal: React.FC<SharePublicAbsensiModalProps> = (
     }
   };
 
+  // Toggle Buka / Tutup Akses Publik Secara Manual (Hemat Kuota Cloud)
+  const handleTogglePublicAccess = async () => {
+    const nextState = !isPublicEnabled;
+    setIsPublicEnabled(nextState);
+    setIsTogglingAccess(true);
+
+    try {
+      const classSessions = sessions.filter((s) => s.classId === currentClass.id);
+      const classStudents = students.map((st) => ({
+        id: st.id,
+        no: st.no,
+        nisn: st.nisn || '',
+        nama: st.nama,
+        gender: st.gender,
+      }));
+
+      const payload: PublicAbsensiData = {
+        shareId,
+        classId: currentClass.id,
+        className: currentClass.namaKelas,
+        mataPelajaran: currentClass.mataPelajaran || teacher.mataPelajaranUtama || 'Pelajaran Umum',
+        schoolName: teacher.namaSekolah || 'SMK Muhammadiyah Bawang',
+        waliKelas: teacher.namaGuru || 'Guru Pengampu',
+        nip: teacher.nip || '',
+        academicYear: teacher.tahunAjaran || '2025/2026',
+        semester: teacher.semester || 'Ganjil',
+        teacherUid: currentUid,
+        updatedAt: new Date().toISOString(),
+        students: classStudents,
+        sessions: classSessions,
+        isPublicEnabled: nextState,
+        pinRequired,
+        accessPin: pinRequired ? accessPin : undefined,
+        allowClassRecap,
+      };
+
+      await FirestoreService.publishPublicAbsensi(payload);
+
+      if (nextState) {
+        onShowToast('Tautan presensi berhasil DIBUKA. Orang tua dapat melihat absensi.', 'success');
+      } else {
+        onShowToast('Tautan presensi berhasil DITUTUP. Akses luar dinonaktifkan (Hemat Kuota Cloud).', 'info');
+      }
+    } catch (err: any) {
+      console.error('Error toggling absensi access:', err);
+      onShowToast('Gagal mengubah status akses: ' + (err?.message || 'Koneksi gagal'), 'error');
+    } finally {
+      setIsTogglingAccess(false);
+    }
+  };
+
   const filteredStudents = students.filter(
     (s) =>
       s.nama.toLowerCase().includes(searchStudent.toLowerCase()) ||
@@ -357,6 +409,79 @@ export const SharePublicAbsensiModal: React.FC<SharePublicAbsensiModalProps> = (
               <p className="text-emerald-700 leading-relaxed">
                 Orang tua cukup mengklik link ini untuk melihat <strong>absen harian</strong> dan <strong>rekap kehadiran</strong> secara real-time. Setiap kali Bapak/Ibu guru memperbarui presensi, data akan otomatis ter-update di layar orang tua.
               </p>
+            </div>
+          </div>
+
+          {/* Quick Control: Buka / Tutup Akses Publik Presensi Manual (Hemat Kuota Cloud) */}
+          <div
+            className={`p-4 rounded-2xl border transition-all ${
+              isPublicEnabled
+                ? 'bg-emerald-50/90 border-emerald-300/80 shadow-xs'
+                : 'bg-rose-50/90 border-rose-300/80 shadow-xs'
+            }`}
+          >
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="flex items-start gap-3">
+                <div
+                  className={`p-2.5 rounded-xl shrink-0 ${
+                    isPublicEnabled
+                      ? 'bg-emerald-100 text-emerald-700'
+                      : 'bg-rose-100 text-rose-700'
+                  }`}
+                >
+                  {isPublicEnabled ? <Globe className="w-5 h-5" /> : <Lock className="w-5 h-5" />}
+                </div>
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-extrabold text-sm text-slate-800">
+                      Status Akses Presensi:
+                    </span>
+                    <span
+                      className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-black uppercase tracking-wider ${
+                        isPublicEnabled
+                          ? 'bg-emerald-600 text-white'
+                          : 'bg-rose-600 text-white'
+                      }`}
+                    >
+                      <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
+                      {isPublicEnabled ? 'Dibuka (Online)' : 'Ditutup (Hemat Kuota)'}
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-600 mt-1">
+                    {isPublicEnabled
+                      ? 'Tautan presensi sedang aktif dan dapat diakses orang tua. Tutup tautan jika jam belajar usai untuk membatasi kuota harian.'
+                      : 'Tautan sedang ditutup. Orang tua yang membuka link ini akan melihat halaman offline sehingga hemat kuota Firestore 100%.'}
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={handleTogglePublicAccess}
+                disabled={isTogglingAccess || isPublishing}
+                className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer flex items-center justify-center gap-2 shrink-0 ${
+                  isPublicEnabled
+                    ? 'bg-rose-600 hover:bg-rose-700 active:bg-rose-800 text-white'
+                    : 'bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white'
+                } disabled:opacity-50`}
+              >
+                {isTogglingAccess ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                    <span>Menyimpan...</span>
+                  </>
+                ) : isPublicEnabled ? (
+                  <>
+                    <Lock className="w-4 h-4" />
+                    <span>Tutup Tautan Sekarang</span>
+                  </>
+                ) : (
+                  <>
+                    <Globe className="w-4 h-4" />
+                    <span>Buka Tautan Sekarang</span>
+                  </>
+                )}
+              </button>
             </div>
           </div>
 
