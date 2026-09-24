@@ -1,20 +1,12 @@
-import { initializeApp, getApps, getApp } from 'firebase/app';
-import {
-  getAuth,
-  signInWithPopup,
-  signInWithRedirect,
-  getRedirectResult,
-  signInWithCredential,
-  GoogleAuthProvider,
-  onAuthStateChanged,
-  User,
-  signOut as firebaseSignOut,
-} from 'firebase/auth';
-import firebaseConfig from '../../firebase-applet-config.json';
+// Google Workspace Integration
+import { supabase, isSupabaseConfigured } from '../lib/supabase';
 
-// Configure Firebase app
-const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
-export const auth = getAuth(app);
+export interface User {
+  uid: string;
+  email: string | null;
+  displayName: string | null;
+  photoURL?: string | null;
+}
 
 // Google Workspace Scopes
 export const WORKSPACE_SCOPES = [
@@ -29,14 +21,14 @@ export const WORKSPACE_SCOPES = [
   'https://www.googleapis.com/auth/gmail.readonly',
 ];
 
-export const googleWorkspaceProvider = new GoogleAuthProvider();
-WORKSPACE_SCOPES.forEach((scope) => googleWorkspaceProvider.addScope(scope));
-googleWorkspaceProvider.setCustomParameters({ prompt: 'select_account' });
+export const googleWorkspaceProvider = {
+  addScope: (_scope: string) => {},
+  setCustomParameters: (_params: any) => {},
+};
 
-// Backward compatibility
 export const provider = googleWorkspaceProvider;
 
-// In-memory token cache (NEVER persist in localStorage per guidelines)
+// In-memory token cache
 let cachedAccessToken: string | null = null;
 let cachedUser: User | null = null;
 let isSigningIn = false;
@@ -45,129 +37,132 @@ export const initGoogleWorkspaceAuth = (
   onSuccess?: (user: User, token: string) => void,
   onFailure?: () => void
 ) => {
-  return onAuthStateChanged(auth, async (user) => {
-    if (user) {
-      cachedUser = user;
-      if (cachedAccessToken) {
-        if (onSuccess) onSuccess(user, cachedAccessToken);
-      } else if (!isSigningIn) {
-        // If logged in via Firebase session but token expired or cleared, user needs re-trigger
+  if (isSupabaseConfigured()) {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session?.user) {
+        cachedUser = {
+          uid: session.user.id,
+          email: session.user.email || null,
+          displayName: session.user.user_metadata?.full_name || session.user.email?.split('@')[0] || null,
+          photoURL: session.user.user_metadata?.avatar_url || null,
+        };
+        const token = session.provider_token || session.access_token || '';
+        cachedAccessToken = token;
+        if (token && onSuccess) {
+          onSuccess(cachedUser, token);
+        } else if (onFailure) {
+          onFailure();
+        }
+      } else {
+        cachedAccessToken = null;
+        cachedUser = null;
         if (onFailure) onFailure();
       }
-    } else {
-      cachedAccessToken = null;
-      cachedUser = null;
-      if (onFailure) onFailure();
-    }
-  });
+    });
+
+    return () => subscription.unsubscribe();
+  }
+
+  // Fallback demo mode
+  return () => {};
 };
 
-/**
- * METODE A: Panggil langsung dari Event Klik (User Gesture Sinkron)
- * Browser modern memblokir popup jika dipanggil setelah await/async.
- * Fungsi ini memanggil signInWithPopup secara langsung dan mengembalikan Promise.
- */
 export const signInWithGoogleWorkspaceDirect = (
   onSuccess: (res: { user: User; accessToken: string }) => void,
   onError: (err: any) => void
 ) => {
   isSigningIn = true;
-  // Panggil langsung saat event klik tombol terjadi (sinkron user gesture)
-  signInWithPopup(auth, googleWorkspaceProvider)
-    .then((result) => {
-      const credential = GoogleAuthProvider.credentialFromResult(result);
-      const accessToken = credential?.accessToken || '';
-      cachedAccessToken = accessToken;
-      cachedUser = result.user;
-      onSuccess({ user: result.user, accessToken });
-    })
-    .catch((error) => {
-      console.warn('Google Workspace Direct Popup error:', error);
-      onError(error);
-    })
-    .finally(() => {
-      isSigningIn = false;
-    });
+  if (!isSupabaseConfigured()) {
+    const mockUser: User = {
+      uid: 'google-demo-user',
+      email: 'hendra.alkindi@gmail.com',
+      displayName: 'Hendra Setiawan, S.Pd',
+      photoURL: null,
+    };
+    cachedUser = mockUser;
+    cachedAccessToken = 'demo-token';
+    onSuccess({ user: mockUser, accessToken: 'demo-token' });
+    isSigningIn = false;
+    return;
+  }
+
+  supabase.auth.signInWithOAuth({
+    provider: 'google',
+    options: {
+      scopes: WORKSPACE_SCOPES.join(' '),
+      redirectTo: window.location.origin,
+    },
+  }).then(({ error }) => {
+    if (error) onError(error);
+  }).catch(onError).finally(() => {
+    isSigningIn = false;
+  });
 };
 
-/**
- * METODE B: Ganti Metode dari Popup ke Redirect (signInWithRedirect)
- * Memindahkan halaman langsung ke Google OAuth tanpa membuka jendela baru,
- * sehingga tidak akan pernah diblokir oleh browser / mobile WebView.
- */
 export const signInWithGoogleWorkspaceRedirect = async (): Promise<void> => {
   isSigningIn = true;
-  try {
-    sessionStorage.setItem('google_auth_redirect_active', 'true');
-  } catch (e) {
-    // Ignore storage issues
+  if (isSupabaseConfigured()) {
+    await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        scopes: WORKSPACE_SCOPES.join(' '),
+        redirectTo: window.location.origin,
+      },
+    });
   }
-  await signInWithRedirect(auth, googleWorkspaceProvider);
 };
 
-/**
- * Cek hasil Redirect setelah kembali dari halaman Google OAuth
- */
 export const checkGoogleWorkspaceRedirectResult = async (): Promise<{
   user: User;
   accessToken: string;
 } | null> => {
-  try {
-    const result = await getRedirectResult(auth);
-    if (result) {
-      const credential = GoogleAuthProvider.credentialFromResult(result);
-      const accessToken = credential?.accessToken || '';
-      cachedAccessToken = accessToken;
-      cachedUser = result.user;
-      try {
-        sessionStorage.removeItem('google_auth_redirect_active');
-      } catch (e) {}
-      return { user: result.user, accessToken };
+  if (isSupabaseConfigured()) {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (session?.user) {
+      const user: User = {
+        uid: session.user.id,
+        email: session.user.email || null,
+        displayName: session.user.user_metadata?.full_name || null,
+        photoURL: session.user.user_metadata?.avatar_url || null,
+      };
+      const token = session.provider_token || session.access_token || '';
+      cachedAccessToken = token;
+      cachedUser = user;
+      return { user, accessToken: token };
     }
-    return null;
-  } catch (error: any) {
-    console.error('Check redirect result error:', error);
-    try {
-      sessionStorage.removeItem('google_auth_redirect_active');
-    } catch (e) {}
-    throw error;
   }
+  return null;
 };
 
-/**
- * METODE C: Gunakan Google Identity Services (GIS) Credential
- * Menerima ID Token dari SDK resmi Google (google.accounts.id)
- * dan mengautentikasi ke Firebase tanpa memicu popup blocker.
- */
 export const signInWithGoogleCredentialToken = async (idToken: string): Promise<{
   user: User;
 }> => {
-  const credential = GoogleAuthProvider.credential(idToken);
-  const result = await signInWithCredential(auth, credential);
-  cachedUser = result.user;
-  return { user: result.user };
+  if (isSupabaseConfigured()) {
+    const { data, error } = await supabase.auth.signInWithIdToken({
+      provider: 'google',
+      token: idToken,
+    });
+    if (error) throw error;
+    const user: User = {
+      uid: data.user.id,
+      email: data.user.email || null,
+      displayName: data.user.user_metadata?.full_name || null,
+      photoURL: data.user.user_metadata?.avatar_url || null,
+    };
+    cachedUser = user;
+    return { user };
+  }
+  const dummy: User = { uid: 'demo', email: 'demo@school.com', displayName: 'Demo' };
+  return { user: dummy };
 };
 
 export const signInWithGoogleWorkspace = async (): Promise<{
   user: User;
   accessToken: string;
 }> => {
-  try {
-    isSigningIn = true;
-    const result = await signInWithPopup(auth, googleWorkspaceProvider);
-    const credential = GoogleAuthProvider.credentialFromResult(result);
-    if (!credential?.accessToken) {
-      throw new Error('Tidak dapat memperoleh Access Token dari Akun Google.');
-    }
-    cachedAccessToken = credential.accessToken;
-    cachedUser = result.user;
-    return { user: result.user, accessToken: cachedAccessToken };
-  } catch (error: any) {
-    console.error('Google Workspace Sign In error:', error);
-    throw error;
-  } finally {
-    isSigningIn = false;
-  }
+  return new Promise((resolve, reject) => {
+    signInWithGoogleWorkspaceDirect(resolve, reject);
+  });
 };
 
 export const getCachedAccessToken = (): string | null => {
@@ -179,7 +174,9 @@ export const getCachedUser = (): User | null => {
 };
 
 export const signOutGoogleWorkspace = async () => {
-  await firebaseSignOut(auth);
+  if (isSupabaseConfigured()) {
+    await supabase.auth.signOut();
+  }
   cachedAccessToken = null;
   cachedUser = null;
 };

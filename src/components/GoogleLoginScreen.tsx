@@ -11,8 +11,7 @@ import {
 } from 'lucide-react';
 import { TeacherProfile, ClassRoom } from '../types';
 import { SchoolLogo } from './SchoolLogo';
-import { auth } from '../lib/firebase';
-import { signInWithEmailAndPassword } from 'firebase/auth';
+import { AuthService } from '../services/authService';
 import { isEmailRegistered } from '../utils/whitelist';
 import { HENDRA_MASTER_DATA } from '../data/seedData';
 
@@ -62,15 +61,15 @@ export const GoogleLoginScreen: React.FC<GoogleLoginScreenProps> = ({
     setSuccessMsg(null);
 
     try {
-      // 1. Coba verifikasi dengan Firebase Auth Email/Password jika akun terdaftar di cloud auth
-      let firebaseUser: any = null;
+      // 1. Verifikasi dengan Supabase Auth jika akun terdaftar di cloud auth
+      let cloudUser: any = null;
       try {
-        const userCred = await signInWithEmailAndPassword(auth, cleanEmail, cleanPass);
-        firebaseUser = userCred.user;
-      } catch (fbErr: any) {
-        // Jika Firebase Auth email belum diatur passwordnya di server console,
-        // periksa otentikasi internal akun pendidik SMK Muhammadiyah Bawang
-        console.warn('Firebase Email/Password note:', fbErr?.code || fbErr?.message);
+        const authRes = await AuthService.signInWithPassword(cleanEmail, cleanPass);
+        if (authRes.user) {
+          cloudUser = authRes.user;
+        }
+      } catch (authErr: any) {
+        console.warn('Supabase Auth note:', authErr?.message);
       }
 
       // 2. Verifikasi hak akses guru / admin terdaftar
@@ -79,7 +78,7 @@ export const GoogleLoginScreen: React.FC<GoogleLoginScreenProps> = ({
         isEmailRegistered(cleanEmail) ||
         cleanEmail.endsWith('@smkmuhbawang.sch.id');
 
-      if (!isKnownTeacher && !firebaseUser) {
+      if (!isKnownTeacher && !cloudUser) {
         setIsLoading(false);
         setErrorMsg('Email tidak terdaftar sebagai pendidik SMK Muhammadiyah Bawang.');
         return;
@@ -91,13 +90,14 @@ export const GoogleLoginScreen: React.FC<GoogleLoginScreenProps> = ({
 
       const displayName = isHendra
         ? masterTeacher.namaGuru
-        : firebaseUser?.displayName ||
+        : cloudUser?.fullName ||
+          cloudUser?.displayName ||
           initialTeacher.namaGuru ||
           cleanEmail.split('@')[0];
 
       const updatedTeacher: TeacherProfile = {
         ...initialTeacher,
-        id: isHendra ? masterTeacher.id : initialTeacher.id || 'teacher-1',
+        id: isHendra ? masterTeacher.id : cloudUser?.id || initialTeacher.id || 'teacher-1',
         namaGuru: displayName,
         email: cleanEmail,
         nip: isHendra ? masterTeacher.nip : initialTeacher.nip || '-',
@@ -111,7 +111,7 @@ export const GoogleLoginScreen: React.FC<GoogleLoginScreenProps> = ({
         avatarUrl:
           isHendra
             ? masterTeacher.avatarUrl
-            : firebaseUser?.photoURL || initialTeacher.avatarUrl || '',
+            : cloudUser?.avatarUrl || cloudUser?.photoURL || initialTeacher.avatarUrl || '',
       };
 
       setSuccessMsg(`Login berhasil! Selamat datang, ${displayName}.`);

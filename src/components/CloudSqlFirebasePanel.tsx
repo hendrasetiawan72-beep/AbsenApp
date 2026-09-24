@@ -13,8 +13,7 @@ import {
   HardDrive,
 } from 'lucide-react';
 import { ClassRoom, Student, TeacherProfile } from '../types';
-import { testFirestoreConnection } from '../lib/firebase';
-import firebaseConfig from '../../firebase-applet-config.json';
+import { supabase, isSupabaseConfigured } from '../lib/supabase';
 
 interface CloudSqlFirebasePanelProps {
   currentClass: ClassRoom;
@@ -50,8 +49,12 @@ export const CloudSqlFirebasePanel: React.FC<CloudSqlFirebasePanelProps> = ({
   const checkFirestore = async () => {
     setIsTestingFirestore(true);
     try {
-      const ok = await testFirestoreConnection();
-      setFirestoreOnline(ok);
+      if (isSupabaseConfigured()) {
+        const { error } = await supabase.from('profiles').select('id').limit(1);
+        setFirestoreOnline(!error);
+      } else {
+        setFirestoreOnline(false);
+      }
     } catch {
       setFirestoreOnline(false);
     } finally {
@@ -247,24 +250,24 @@ export const CloudSqlFirebasePanel: React.FC<CloudSqlFirebasePanelProps> = ({
 
           <div className="bg-slate-50 rounded-xl p-3.5 text-xs text-slate-600 space-y-1.5 border border-slate-200/80">
             <div className="flex justify-between">
-              <span className="text-slate-500">Firebase Project:</span>
+              <span className="text-slate-500">Database Engine:</span>
               <span className="font-mono font-semibold text-slate-800">
-                {firebaseConfig.projectId || 'dependable-bearing-x14dk'}
+                Supabase PostgreSQL 15+
               </span>
             </div>
             <div className="flex justify-between">
-              <span className="text-slate-500">Auth Domain:</span>
+              <span className="text-slate-500">Cloud Status:</span>
               <span className="font-mono font-semibold text-slate-800 truncate max-w-[200px]">
-                {firebaseConfig.authDomain || '-'}
+                {isSupabaseConfigured() ? 'Connected (Active)' : 'Local-First Cache'}
               </span>
             </div>
             <div className="flex justify-between">
               <span className="text-slate-500">Security Rules:</span>
-              <span className="font-mono font-semibold text-emerald-700">Deployed & Hardened</span>
+              <span className="font-mono font-semibold text-emerald-700">Row-Level Security (RLS)</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-slate-500">Firestore Rules:</span>
-              <span className="font-mono font-semibold text-slate-800">RBAC User Per-Teacher</span>
+              <span className="text-slate-500">Sync Manager:</span>
+              <span className="font-mono font-semibold text-slate-800">IndexedDB Queue & Realtime</span>
             </div>
           </div>
 

@@ -18,7 +18,7 @@ import {
 } from 'lucide-react';
 import { ClassRoom, Student, TeacherProfile, SavingTransaction } from '../types';
 import { FirestoreService, PublicTabunganData } from '../services/firestoreService';
-import { auth } from '../lib/firebase';
+import { auth } from '../services/authService';
 import { QRCodeModal } from './QRCodeModal';
 
 interface SharePublicTabunganModalProps {

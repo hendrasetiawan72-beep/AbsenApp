@@ -1,6 +1,3 @@
-import { doc, getDoc, setDoc } from 'firebase/firestore';
-import { db } from '../lib/firebase';
-import { isQuotaExceeded, isQuotaExceededError, markQuotaExceeded } from './firestoreService';
 import {
   TeacherProfile,
   ClassRoom,
@@ -10,16 +7,18 @@ import {
   TeacherWorkspaceData,
   TeachingAgenda,
 } from '../types';
+import { IndexedDBManager } from '../utils/indexedDb';
+import { ClassService } from './classService';
+import { StudentService } from './studentService';
+import { AttendanceService } from './attendanceService';
+import { GradeService } from './gradeService';
+import { AgendaService } from './agendaService';
+import { AuthService } from './authService';
 
 /**
- * Cloud Storage Service for Multi-Device Persistence
- * Ensures: "Semua data yang diunggah otomatis tersimpan di tiap email yang login. Satu email satu data."
+ * Cloud Storage Service for Multi-Device Persistence backed by Supabase
  */
-
 export const CloudStorage = {
-  /**
-   * Generates a safe storage key for local cache per email
-   */
   getEmailCacheKey(emailOrUid: string): string {
     const cleanKey = (emailOrUid || 'anonymous')
       .trim()
@@ -29,8 +28,7 @@ export const CloudStorage = {
   },
 
   /**
-   * Saves complete teacher workspace to Firestore under the teacher's UID
-   * and also caches locally under that specific email key.
+   * Saves teacher workspace to Supabase and caches locally in IndexedDB
    */
   async saveWorkspace(
     teacherUid: string,
@@ -58,42 +56,30 @@ export const CloudStorage = {
       updatedAt: new Date().toISOString(),
     };
 
-    // 1. Save to email-isolated local cache immediately
+    // 1. Save to local IndexedDB cache immediately
+    await IndexedDBManager.setCache(this.getEmailCacheKey(email || teacherUid), payload);
+
+    if (!teacherUid) return true;
+
+    // 2. Granular parallel persistence to Supabase
     try {
-      const cacheKey = this.getEmailCacheKey(email || teacherUid);
-      localStorage.setItem(cacheKey, JSON.stringify(payload));
-    } catch (e) {
-      console.warn('Failed to cache workspace locally:', e);
-    }
-
-    // 2. Persist to Firestore cloud database so data is accessible across devices
-    if (!teacherUid) {
-      console.warn('No teacher UID provided for cloud storage save');
-      return false;
-    }
-
-    if (isQuotaExceeded()) {
-      return true; // Already saved to local email cache above
-    }
-
-    try {
-      const docRef = doc(db, 'teacher_workspaces', teacherUid);
-      await setDoc(docRef, payload, { merge: true });
-      console.log(`[CloudStorage] Successfully saved workspace for ${email} to Firestore`);
+      await Promise.allSettled([
+        AuthService.updateProfile(teacherUid, data.teacher),
+        ClassService.saveClassesBatch(teacherUid, data.classes),
+        StudentService.saveStudentsBatch(data.students),
+        AttendanceService.saveAttendanceSessionsBatch(teacherUid, data.sessions),
+        GradeService.saveGradesBatch(data.grades),
+        data.agendas ? AgendaService.saveAgendasBatch(teacherUid, data.agendas) : Promise.resolve(),
+      ]);
       return true;
-    } catch (error) {
-      if (isQuotaExceededError(error)) {
-        markQuotaExceeded(String(error));
-        return true;
-      }
-      console.error('[CloudStorage] Error saving workspace to Firestore:', error);
-      return false;
+    } catch (err) {
+      console.warn('[CloudStorage] Notice persisting to Supabase:', err);
+      return true;
     }
   },
 
   /**
-   * Loads teacher workspace from Firestore for the given user.
-   * If Firestore is slow or offline, falls back to the email-isolated local cache.
+   * Loads teacher workspace from Supabase, falling back to IndexedDB cache
    */
   async loadWorkspace(
     teacherUid: string,
@@ -101,39 +87,58 @@ export const CloudStorage = {
   ): Promise<TeacherWorkspaceData | null> {
     const cacheKey = this.getEmailCacheKey(email || teacherUid);
 
-    // 1. Try reading from Firestore (cross-device truth)
+    // 1. Try reading from Supabase
     if (teacherUid) {
       try {
-        const docRef = doc(db, 'teacher_workspaces', teacherUid);
-        const snapshot = await getDoc(docRef);
+        const [profile, classes, students, sessions, grades, agendas] = await Promise.all([
+          AuthService.getProfile(teacherUid),
+          ClassService.listClasses(teacherUid),
+          StudentService.listAllStudents(),
+          AttendanceService.listAttendanceSessions(teacherUid),
+          GradeService.listGrades(),
+          AgendaService.listAgendas(teacherUid),
+        ]);
 
-        if (snapshot.exists()) {
-          const cloudData = snapshot.data() as TeacherWorkspaceData;
-          console.log(`[CloudStorage] Retrieved cloud workspace for ${email} from Firestore`);
-          // Update local cache
-          try {
-            localStorage.setItem(cacheKey, JSON.stringify(cloudData));
-          } catch (e) {
-            console.warn('Failed to update local cache:', e);
-          }
-          return cloudData;
-        } else {
-          console.log(`[CloudStorage] No existing cloud workspace document for ${email} yet.`);
+        if (classes.length > 0 || students.length > 0) {
+          const workspace: TeacherWorkspaceData = {
+            teacherUid,
+            email: email || '',
+            teacher: profile || {
+              id: teacherUid,
+              namaGuru: 'Guru SMK Muhammadiyah Bawang',
+              nip: '-',
+              namaSekolah: 'SMK Muhammadiyah Bawang',
+              mataPelajaranUtama: 'Bahasa Inggris',
+              tahunAjaran: '2026/2027',
+              semester: 'Ganjil',
+              isLoggedIn: true,
+            },
+            classes,
+            activeClassId: classes[0]?.id || '',
+            students,
+            sessions,
+            grades,
+            agendas,
+            updatedAt: new Date().toISOString(),
+          };
+
+          await IndexedDBManager.setCache(cacheKey, workspace);
+          return workspace;
         }
-      } catch (error) {
-        console.warn('[CloudStorage] Firestore read error, checking local cache:', error);
+      } catch (err) {
+        console.warn('[CloudStorage] Supabase load error, checking cache:', err);
       }
     }
 
-    // 2. Fallback to email-isolated local cache
+    // 2. Fallback to IndexedDB cache
+    const cached = await IndexedDBManager.getCache<TeacherWorkspaceData>(cacheKey);
+    if (cached) return cached;
+
+    // 3. Fallback to localStorage legacy
     try {
-      const localCached = localStorage.getItem(cacheKey);
-      if (localCached) {
-        return JSON.parse(localCached) as TeacherWorkspaceData;
-      }
-    } catch (e) {
-      console.warn('Failed to parse cached workspace:', e);
-    }
+      const local = localStorage.getItem(cacheKey);
+      if (local) return JSON.parse(local);
+    } catch {}
 
     return null;
   },

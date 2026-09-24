@@ -13,8 +13,7 @@ import {
   BookOpen,
   Edit3,
 } from 'lucide-react';
-import { onAuthStateChanged, signOut } from 'firebase/auth';
-import { auth } from './lib/firebase';
+import { auth, onAuthStateChanged, signOut } from './services/authService';
 import { FirestoreService, isQuotaExceeded } from './services/firestoreService';
 import { ToastContainer, ToastItem } from './components/Toast';
 import { CloudLoadingScreen } from './components/CloudLoadingScreen';

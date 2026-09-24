@@ -21,7 +21,7 @@ import {
 } from 'lucide-react';
 import { ClassRoom, Student, TeacherProfile, AttendanceSession } from '../types';
 import { FirestoreService, PublicAbsensiData } from '../services/firestoreService';
-import { auth } from '../lib/firebase';
+import { auth } from '../services/authService';
 import { QRCodeModal } from './QRCodeModal';
 
 interface SharePublicAbsensiModalProps {
