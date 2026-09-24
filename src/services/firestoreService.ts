@@ -223,6 +223,8 @@ export interface UserWorkspaceData {
   grades: StudentGrade[];
   agendas?: TeachingAgenda[];
   savings?: SavingTransaction[];
+  gradeHeadersMap?: Record<string, GradeColumnHeader[]>;
+  publicAccessFlags?: Record<string, boolean>;
   isNewUser?: boolean;
   updatedAt?: string;
 }
@@ -500,12 +502,23 @@ export const FirestoreService = {
                 if (key.startsWith('gradeHeaders_')) {
                   const cId = key.replace('gradeHeaders_', '');
                   if (Array.isArray(wsData[key]) && wsData[key].length > 0) {
-                    Storage.setGradeHeaders(cId, wsData[key]);
+                    Storage.setGradeHeaders(cId, wsData[key], true);
                   }
                 }
               });
             } catch (hErr) {
               console.warn('[FirestoreService] Header restoration notice:', hErr);
+            }
+
+            // Restore public access toggles into localStorage
+            try {
+              if (wsData.publicAccessFlags && typeof wsData.publicAccessFlags === 'object') {
+                Object.entries(wsData.publicAccessFlags).forEach(([k, v]) => {
+                  localStorage.setItem(`pub_access_${k}`, String(v));
+                });
+              }
+            } catch (pErr) {
+              console.warn('[FirestoreService] Public access flag restoration notice:', pErr);
             }
 
             updateLocalCache(result);
@@ -602,21 +615,23 @@ export const FirestoreService = {
       }
 
       // Check local storage before declaring a new user
-      const localClasses = Storage.getClasses();
-      if (localClasses && localClasses.length > 0) {
-        const localWorkspace: UserWorkspaceData = {
-          teacher: Storage.getTeacher(),
-          classes: localClasses,
-          activeClassId: Storage.getActiveClassId() || localClasses[0]?.id || '',
-          students: Storage.getAllStudents(),
-          sessions: Storage.getAllSessions(),
-          grades: Storage.getAllGrades(),
-          agendas: Storage.getAllAgendas(),
-          savings: Storage.getAllSavings(),
-          isNewUser: false,
-        };
-        updateLocalCache(localWorkspace);
-        return localWorkspace;
+      if (Storage.hasCustomLocalData()) {
+        const localClasses = Storage.getClasses();
+        if (localClasses && localClasses.length > 0) {
+          const localWorkspace: UserWorkspaceData = {
+            teacher: Storage.getTeacher(),
+            classes: localClasses,
+            activeClassId: Storage.getActiveClassId() || localClasses[0]?.id || '',
+            students: Storage.getAllStudents(),
+            sessions: Storage.getAllSessions(),
+            grades: Storage.getAllGrades(),
+            agendas: Storage.getAllAgendas(),
+            savings: Storage.getAllSavings(),
+            isNewUser: false,
+          };
+          updateLocalCache(localWorkspace);
+          return localWorkspace;
+        }
       }
 
       // Truly new user or empty database
@@ -1116,6 +1131,8 @@ export const FirestoreService = {
       grades?: StudentGrade[];
       agendas?: TeachingAgenda[];
       savings?: SavingTransaction[];
+      gradeHeadersMap?: Record<string, GradeColumnHeader[]>;
+      publicAccessFlags?: Record<string, boolean>;
     }
   ): Promise<void> {
     if (!uid) return;
@@ -1129,18 +1146,51 @@ export const FirestoreService = {
     if (isQuotaExceeded()) return;
 
     const wsRef = doc(db, 'teacher_workspaces', uid);
+    const classes = fullData.classes || Storage.getClasses();
+
+    // Collect grade headers for every class
+    const gradeHeadersPayload: Record<string, any> = {};
+    classes.forEach((cls) => {
+      const hdrs =
+        fullData.gradeHeadersMap?.[cls.id] || Storage.getGradeHeaders(cls.id);
+      if (Array.isArray(hdrs) && hdrs.length > 0) {
+        gradeHeadersPayload[`gradeHeaders_${cls.id}`] = hdrs;
+      }
+    });
+
+    // Collect public access flags
+    const publicFlags: Record<string, boolean> = fullData.publicAccessFlags || {};
+    if (typeof window !== 'undefined') {
+      classes.forEach((cls) => {
+        if (publicFlags[`abs_${cls.id}`] === undefined) {
+          publicFlags[`abs_${cls.id}`] =
+            localStorage.getItem(`pub_access_abs_${cls.id}`) === 'true';
+        }
+        if (publicFlags[`nil_${cls.id}`] === undefined) {
+          publicFlags[`nil_${cls.id}`] =
+            localStorage.getItem(`pub_access_nil_${cls.id}`) === 'true';
+        }
+        if (publicFlags[`tb_${cls.id}`] === undefined) {
+          publicFlags[`tb_${cls.id}`] =
+            localStorage.getItem(`pub_access_tb_${cls.id}`) === 'true';
+        }
+      });
+    }
+
     await safeSetDoc(
       wsRef,
       sanitizeForFirestore({
         teacherUid: uid,
         teacher: fullData.teacher || Storage.getTeacher(),
-        classes: fullData.classes || Storage.getClasses(),
+        classes: classes,
         activeClassId: fullData.activeClassId || Storage.getActiveClassId(),
         students: fullData.students || Storage.getAllStudents(),
         sessions: fullData.sessions || Storage.getAllSessions(),
         grades: fullData.grades || Storage.getAllGrades(),
         agendas: fullData.agendas || Storage.getAllAgendas(),
         savings: fullData.savings || Storage.getAllSavings(),
+        publicAccessFlags: publicFlags,
+        ...gradeHeadersPayload,
         updatedAt: new Date().toISOString(),
       }),
       { merge: true }
@@ -1338,6 +1388,13 @@ export const FirestoreService = {
             gender: s.gender,
           })) : [],
           grades: isNilOpen ? classGrades : [],
+          columnHeaders: isNilOpen
+            ? Storage.getGradeHeaders(
+                cls.id,
+                teacher.semester === 'Genap' ? 'Genap' : 'Ganjil',
+                teacher.tahunAjaran || '2025/2026'
+              )
+            : undefined,
           isPublicEnabled: isNilOpen,
         };
 
@@ -1395,43 +1452,114 @@ export const FirestoreService = {
   },
 
   /**
+   * Generates all possible legacy and canonical share IDs for a given class.
+   * This guarantees that when access is locked or opened, EVERY old link format is synchronized.
+   */
+  getAllPossibleShareIds(
+    type: 'abs' | 'nil' | 'tb',
+    classId: string,
+    teacherUid?: string
+  ): string[] {
+    const rawClass = classId || 'default';
+    const cleanClass = rawClass.replace(/[^a-zA-Z0-9_-]/g, '');
+    const cleanClassNoHyphen = rawClass.replace(/[^a-zA-Z0-9]/g, '');
+
+    const uids = new Set<string>();
+    if (teacherUid) {
+      uids.add(teacherUid.replace(/[^a-zA-Z0-9]/g, '').slice(0, 10));
+    }
+    if (typeof window !== 'undefined') {
+      try {
+        const storedUid = localStorage.getItem('smk_active_teacher_uid');
+        if (storedUid) {
+          uids.add(storedUid.replace(/[^a-zA-Z0-9]/g, '').slice(0, 10));
+        }
+      } catch {}
+    }
+    // Also include common legacy teacher prefixes
+    uids.add('jDMULvPfg1');
+    uids.add('demo');
+    uids.add('guru');
+
+    const shareIds = new Set<string>();
+
+    // 1. Prefixed with teacher UID (canonical & variants)
+    uids.forEach((uid) => {
+      if (uid) {
+        shareIds.add(`${type}_${uid}_${cleanClass}`);
+        if (cleanClassNoHyphen) {
+          shareIds.add(`${type}_${uid}_${cleanClassNoHyphen}`);
+        }
+      }
+    });
+
+    // 2. Legacy without teacher UID
+    shareIds.add(`${type}_${cleanClass}`);
+    if (cleanClassNoHyphen) {
+      shareIds.add(`${type}_${cleanClassNoHyphen}`);
+    }
+
+    // 3. Raw class IDs (very early legacy)
+    shareIds.add(cleanClass);
+    if (cleanClassNoHyphen) {
+      shareIds.add(cleanClassNoHyphen);
+    }
+
+    return Array.from(shareIds);
+  },
+
+  /**
    * Helper to derive deterministic public share ID for a teacher and class
    */
   getPublicTabunganShareId(teacherUid: string, classId: string): string {
     const cleanUid = (teacherUid || 'demo').replace(/[^a-zA-Z0-9]/g, '').slice(0, 10);
-    const cleanClass = (classId || 'default').replace(/[^a-zA-Z0-9]/g, '');
+    const cleanClass = (classId || 'default').replace(/[^a-zA-Z0-9_-]/g, '');
     return `tb_${cleanUid}_${cleanClass}`;
   },
 
   /**
-   * Publish or update class savings snapshot to public collection for parents
+   * Publish or update class savings snapshot to public collection for parents.
+   * Updates canonical document AND all historical alias documents so old links stay in sync.
    */
   async publishPublicTabungan(data: PublicTabunganData): Promise<void> {
     if (!data.shareId) {
       throw new Error('ID tautan publik tabungan tidak valid.');
     }
+    const isLocked = data.isPublicEnabled !== true;
     const sanitized = sanitizeForFirestore({
       ...data,
+      students: isLocked ? [] : data.students,
+      savings: isLocked ? [] : data.savings,
+      isPublicEnabled: !isLocked,
       updatedAt: new Date().toISOString(),
     });
 
-    const cleanClass = data.classId ? data.classId.replace(/[^a-zA-Z0-9_-]/g, '') : '';
-    const cleanClassNoHyphen = data.classId ? data.classId.replace(/[^a-zA-Z0-9]/g, '') : '';
+    const allShareIds = this.getAllPossibleShareIds('tb', data.classId, data.teacherUid);
+    if (!allShareIds.includes(data.shareId)) {
+      allShareIds.push(data.shareId);
+    }
 
     // Instant local cache and broadcast channel for immediate zero-latency preview
     if (typeof window !== 'undefined') {
-      broadcastPreviewUpdate('tabungan', data.shareId, data.classId, sanitized);
-      try {
-        localStorage.setItem(`cache_pub_tb_${data.shareId}`, JSON.stringify(sanitized));
-        if (cleanClass) localStorage.setItem(`cache_pub_tb_tb_${cleanClass}`, JSON.stringify(sanitized));
-        if (cleanClassNoHyphen) localStorage.setItem(`cache_pub_tb_tb_${cleanClassNoHyphen}`, JSON.stringify(sanitized));
-      } catch {}
+      allShareIds.forEach((sid) => {
+        broadcastPreviewUpdate('tabungan', sid, data.classId, sanitized);
+        try {
+          localStorage.setItem(`cache_pub_tb_${sid}`, JSON.stringify(sanitized));
+        } catch {}
+      });
     }
 
     if (isQuotaExceeded()) return;
 
-    const publicRef = doc(db, 'public_tabungan', data.shareId);
-    await safeSetDoc(publicRef, sanitized, { merge: true });
+    await Promise.allSettled(
+      allShareIds.map((sid) => {
+        const publicRef = doc(db, 'public_tabungan', sid);
+        return safeSetDoc(publicRef, {
+          ...sanitized,
+          shareId: sid,
+        }, { merge: true });
+      })
+    );
   },
 
   /**
@@ -1441,11 +1569,10 @@ export const FirestoreService = {
     if (!shareId) return null;
     const publicRef = doc(db, 'public_tabungan', shareId);
     const snap = await getDoc(publicRef);
+    let result: PublicTabunganData | null = null;
     if (snap.exists()) {
-      return snap.data() as PublicTabunganData;
-    }
-    // Try fallback alias if shareId was composite
-    if (shareId.startsWith('tb_')) {
+      result = snap.data() as PublicTabunganData;
+    } else if (shareId.startsWith('tb_')) {
       const parts = shareId.split('_');
       if (parts.length > 2) {
         const classPart = parts.slice(2).join('_');
@@ -1453,16 +1580,37 @@ export const FirestoreService = {
         const aliasRef = doc(db, 'public_tabungan', `tb_${cleanClass}`);
         const aliasSnap = await getDoc(aliasRef);
         if (aliasSnap.exists()) {
-          return aliasSnap.data() as PublicTabunganData;
-        }
-        const noHyphen = cleanClass.replace(/[^a-zA-Z0-9]/g, '');
-        if (noHyphen !== cleanClass) {
-          const nhSnap = await getDoc(doc(db, 'public_tabungan', `tb_${noHyphen}`));
-          if (nhSnap.exists()) return nhSnap.data() as PublicTabunganData;
+          result = aliasSnap.data() as PublicTabunganData;
+        } else {
+          const noHyphen = cleanClass.replace(/[^a-zA-Z0-9]/g, '');
+          if (noHyphen !== cleanClass) {
+            const nhSnap = await getDoc(doc(db, 'public_tabungan', `tb_${noHyphen}`));
+            if (nhSnap.exists()) result = nhSnap.data() as PublicTabunganData;
+          }
         }
       }
     }
-    return null;
+
+    if (!result) return null;
+
+    // Check if canonical doc has locked this class
+    if (result.classId && result.isPublicEnabled === true) {
+      const teacherUid = result.teacherUid || (result as any).teacherId;
+      if (teacherUid) {
+        const canonicalId = this.getPublicTabunganShareId(teacherUid, result.classId);
+        if (canonicalId !== shareId) {
+          const canonSnap = await getDoc(doc(db, 'public_tabungan', canonicalId));
+          if (canonSnap.exists()) {
+            const canonData = canonSnap.data() as PublicTabunganData;
+            if (canonData.isPublicEnabled === false) {
+              return { ...result, isPublicEnabled: false, students: [], savings: [] };
+            }
+          }
+        }
+      }
+    }
+
+    return result;
   },
 
   /**
@@ -1511,14 +1659,39 @@ export const FirestoreService = {
       }
     };
 
+    const verifyAuthoritativeData = async (rawDocData: PublicTabunganData): Promise<PublicTabunganData> => {
+      if (rawDocData.isPublicEnabled !== true) {
+        return { ...rawDocData, isPublicEnabled: false, students: [], savings: [] };
+      }
+      try {
+        const classId = rawDocData.classId;
+        const teacherUid = rawDocData.teacherUid || (rawDocData as any).teacherId;
+        if (classId && teacherUid) {
+          const canonicalId = this.getPublicTabunganShareId(teacherUid, classId);
+          if (canonicalId !== shareId) {
+            const canonSnap = await getDoc(doc(db, 'public_tabungan', canonicalId));
+            if (canonSnap.exists()) {
+              const canonData = canonSnap.data() as PublicTabunganData;
+              if (canonData.isPublicEnabled === false) {
+                safeSetDoc(publicRef, { ...rawDocData, isPublicEnabled: false, students: [], savings: [] }, { merge: true }).catch(() => {});
+                return { ...rawDocData, isPublicEnabled: false, students: [], savings: [] };
+              }
+            }
+          }
+        }
+      } catch {}
+      return rawDocData;
+    };
+
     const primaryUnsub = onSnapshot(
       publicRef,
-      (snapshot) => {
+      async (snapshot) => {
         if (snapshot.exists()) {
           hasLoadedCloudData = true;
           const fresh = snapshot.data() as PublicTabunganData;
-          saveToCache(fresh);
-          onUpdate(fresh);
+          const verified = await verifyAuthoritativeData(fresh);
+          saveToCache(verified);
+          onUpdate(verified);
         } else {
           // If primary shareId is not found, try fallback class alias snapshot
           if (!hasLoadedCloudData && shareId.startsWith('tb_')) {
@@ -1530,20 +1703,22 @@ export const FirestoreService = {
               if (!fallbackUnsub) {
                 fallbackUnsub = onSnapshot(
                   aliasRef,
-                  (aliasSnap) => {
+                  async (aliasSnap) => {
                     if (aliasSnap.exists()) {
                       hasLoadedCloudData = true;
                       const aliasData = aliasSnap.data() as PublicTabunganData;
-                      saveToCache(aliasData);
-                      onUpdate(aliasData);
+                      const verified = await verifyAuthoritativeData(aliasData);
+                      saveToCache(verified);
+                      onUpdate(verified);
                     } else {
                       const noHyphen = cleanPart.replace(/[^a-zA-Z0-9]/g, '');
                       if (noHyphen !== cleanPart) {
-                        getDoc(doc(db, 'public_tabungan', `tb_${noHyphen}`)).then((nhSnap) => {
+                        getDoc(doc(db, 'public_tabungan', `tb_${noHyphen}`)).then(async (nhSnap) => {
                           if (nhSnap.exists()) {
                             const nhData = nhSnap.data() as PublicTabunganData;
-                            saveToCache(nhData);
-                            onUpdate(nhData);
+                            const verified = await verifyAuthoritativeData(nhData);
+                            saveToCache(verified);
+                            onUpdate(verified);
                           } else {
                             onUpdate(null);
                           }
@@ -1590,34 +1765,48 @@ export const FirestoreService = {
   },
 
   /**
-   * Publish or update class attendance snapshot to public collection for parents
+   * Publish or update class attendance snapshot to public collection for parents.
+   * Updates canonical document AND all historical alias documents so old links stay in sync.
    */
   async publishPublicAbsensi(data: PublicAbsensiData): Promise<void> {
     if (!data.shareId) {
       throw new Error('ID tautan publik absensi tidak valid.');
     }
+    const isLocked = data.isPublicEnabled !== true;
     const sanitized = sanitizeForFirestore({
       ...data,
+      students: isLocked ? [] : data.students,
+      sessions: isLocked ? [] : data.sessions,
+      isPublicEnabled: !isLocked,
       updatedAt: new Date().toISOString(),
     });
 
-    const cleanClass = data.classId ? data.classId.replace(/[^a-zA-Z0-9_-]/g, '') : '';
-    const cleanClassNoHyphen = data.classId ? data.classId.replace(/[^a-zA-Z0-9]/g, '') : '';
+    const allShareIds = this.getAllPossibleShareIds('abs', data.classId, data.teacherUid);
+    if (!allShareIds.includes(data.shareId)) {
+      allShareIds.push(data.shareId);
+    }
 
     // Instant local cache and broadcast channel for immediate zero-latency preview (0ms)
     if (typeof window !== 'undefined') {
-      broadcastPreviewUpdate('absensi', data.shareId, data.classId, sanitized);
-      try {
-        localStorage.setItem(`cache_pub_abs_${data.shareId}`, JSON.stringify(sanitized));
-        if (cleanClass) localStorage.setItem(`cache_pub_abs_abs_${cleanClass}`, JSON.stringify(sanitized));
-        if (cleanClassNoHyphen) localStorage.setItem(`cache_pub_abs_abs_${cleanClassNoHyphen}`, JSON.stringify(sanitized));
-      } catch {}
+      allShareIds.forEach((sid) => {
+        broadcastPreviewUpdate('absensi', sid, data.classId, sanitized);
+        try {
+          localStorage.setItem(`cache_pub_abs_${sid}`, JSON.stringify(sanitized));
+        } catch {}
+      });
     }
 
     if (isQuotaExceeded()) return;
 
-    const publicRef = doc(db, 'public_absensi', data.shareId);
-    await safeSetDoc(publicRef, sanitized, { merge: true });
+    await Promise.allSettled(
+      allShareIds.map((sid) => {
+        const publicRef = doc(db, 'public_absensi', sid);
+        return safeSetDoc(publicRef, {
+          ...sanitized,
+          shareId: sid,
+        }, { merge: true });
+      })
+    );
   },
 
   /**
@@ -1627,11 +1816,10 @@ export const FirestoreService = {
     if (!shareId) return null;
     const publicRef = doc(db, 'public_absensi', shareId);
     const snap = await getDoc(publicRef);
+    let result: PublicAbsensiData | null = null;
     if (snap.exists()) {
-      return snap.data() as PublicAbsensiData;
-    }
-    // Try fallback alias if shareId was composite
-    if (shareId.startsWith('abs_')) {
+      result = snap.data() as PublicAbsensiData;
+    } else if (shareId.startsWith('abs_')) {
       const parts = shareId.split('_');
       if (parts.length > 2) {
         const classPart = parts.slice(2).join('_');
@@ -1639,16 +1827,37 @@ export const FirestoreService = {
         const aliasRef = doc(db, 'public_absensi', `abs_${cleanClass}`);
         const aliasSnap = await getDoc(aliasRef);
         if (aliasSnap.exists()) {
-          return aliasSnap.data() as PublicAbsensiData;
-        }
-        const noHyphen = cleanClass.replace(/[^a-zA-Z0-9]/g, '');
-        if (noHyphen !== cleanClass) {
-          const nhSnap = await getDoc(doc(db, 'public_absensi', `abs_${noHyphen}`));
-          if (nhSnap.exists()) return nhSnap.data() as PublicAbsensiData;
+          result = aliasSnap.data() as PublicAbsensiData;
+        } else {
+          const noHyphen = cleanClass.replace(/[^a-zA-Z0-9]/g, '');
+          if (noHyphen !== cleanClass) {
+            const nhSnap = await getDoc(doc(db, 'public_absensi', `abs_${noHyphen}`));
+            if (nhSnap.exists()) result = nhSnap.data() as PublicAbsensiData;
+          }
         }
       }
     }
-    return null;
+
+    if (!result) return null;
+
+    // Check if canonical doc has locked this class
+    if (result.classId && result.isPublicEnabled === true) {
+      const teacherUid = result.teacherUid || (result as any).teacherId;
+      if (teacherUid) {
+        const canonicalId = this.getPublicAbsensiShareId(teacherUid, result.classId);
+        if (canonicalId !== shareId) {
+          const canonSnap = await getDoc(doc(db, 'public_absensi', canonicalId));
+          if (canonSnap.exists()) {
+            const canonData = canonSnap.data() as PublicAbsensiData;
+            if (canonData.isPublicEnabled === false) {
+              return { ...result, isPublicEnabled: false, students: [], sessions: [] };
+            }
+          }
+        }
+      }
+    }
+
+    return result;
   },
 
   /**
@@ -1697,14 +1906,39 @@ export const FirestoreService = {
       }
     };
 
+    const verifyAuthoritativeData = async (rawDocData: PublicAbsensiData): Promise<PublicAbsensiData> => {
+      if (rawDocData.isPublicEnabled !== true) {
+        return { ...rawDocData, isPublicEnabled: false, students: [], sessions: [] };
+      }
+      try {
+        const classId = rawDocData.classId;
+        const teacherUid = rawDocData.teacherUid || (rawDocData as any).teacherId;
+        if (classId && teacherUid) {
+          const canonicalId = this.getPublicAbsensiShareId(teacherUid, classId);
+          if (canonicalId !== shareId) {
+            const canonSnap = await getDoc(doc(db, 'public_absensi', canonicalId));
+            if (canonSnap.exists()) {
+              const canonData = canonSnap.data() as PublicAbsensiData;
+              if (canonData.isPublicEnabled === false) {
+                safeSetDoc(publicRef, { ...rawDocData, isPublicEnabled: false, students: [], sessions: [] }, { merge: true }).catch(() => {});
+                return { ...rawDocData, isPublicEnabled: false, students: [], sessions: [] };
+              }
+            }
+          }
+        }
+      } catch {}
+      return rawDocData;
+    };
+
     const primaryUnsub = onSnapshot(
       publicRef,
-      (snapshot) => {
+      async (snapshot) => {
         if (snapshot.exists()) {
           hasLoadedCloudData = true;
           const fresh = snapshot.data() as PublicAbsensiData;
-          saveToCache(fresh);
-          onUpdate(fresh);
+          const verified = await verifyAuthoritativeData(fresh);
+          saveToCache(verified);
+          onUpdate(verified);
         } else {
           // If primary shareId is not found, try fallback class alias snapshot
           if (!hasLoadedCloudData && shareId.startsWith('abs_')) {
@@ -1716,20 +1950,22 @@ export const FirestoreService = {
               if (!fallbackUnsub) {
                 fallbackUnsub = onSnapshot(
                   aliasRef,
-                  (aliasSnap) => {
+                  async (aliasSnap) => {
                     if (aliasSnap.exists()) {
                       hasLoadedCloudData = true;
                       const aliasData = aliasSnap.data() as PublicAbsensiData;
-                      saveToCache(aliasData);
-                      onUpdate(aliasData);
+                      const verified = await verifyAuthoritativeData(aliasData);
+                      saveToCache(verified);
+                      onUpdate(verified);
                     } else {
                       const noHyphen = cleanPart.replace(/[^a-zA-Z0-9]/g, '');
                       if (noHyphen !== cleanPart) {
-                        getDoc(doc(db, 'public_absensi', `abs_${noHyphen}`)).then((nhSnap) => {
+                        getDoc(doc(db, 'public_absensi', `abs_${noHyphen}`)).then(async (nhSnap) => {
                           if (nhSnap.exists()) {
                             const nhData = nhSnap.data() as PublicAbsensiData;
-                            saveToCache(nhData);
-                            onUpdate(nhData);
+                            const verified = await verifyAuthoritativeData(nhData);
+                            saveToCache(verified);
+                            onUpdate(verified);
                           } else {
                             onUpdate(null);
                           }
@@ -1776,59 +2012,76 @@ export const FirestoreService = {
   },
 
   /**
-   * Publish or update student grades snapshot to public collection for students & parents
+   * Publish or update student grades snapshot to public collection for students & parents.
+   * Updates canonical document AND all historical alias documents so old links stay in sync.
    */
   async publishPublicNilai(data: PublicNilaiData): Promise<void> {
     if (!data.shareId) {
       throw new Error('ID tautan publik nilai tidak valid.');
     }
 
+    const isLocked = data.isPublicEnabled !== true;
+
     // Normalize monthly grades if present so formatif 1..8 and sumatifs are always populated
-    const normalizedGrades = (data.grades || []).map((g) => {
-      const m = g.monthlyGrades || {};
-      return {
-        ...g,
-        formatif1: g.formatif1 ?? (m['m0_c0'] !== undefined ? Number(m['m0_c0']) : null),
-        formatif2: g.formatif2 ?? (m['m0_c1'] !== undefined ? Number(m['m0_c1']) : null),
-        formatif3: g.formatif3 ?? (m['m0_c2'] !== undefined ? Number(m['m0_c2']) : null),
-        formatif4: g.formatif4 ?? (m['m0_c3'] !== undefined ? Number(m['m0_c3']) : null),
-        formatif5: g.formatif5 ?? (m['m1_c0'] !== undefined ? Number(m['m1_c0']) : null),
-        formatif6: g.formatif6 ?? (m['m1_c1'] !== undefined ? Number(m['m1_c1']) : null),
-        formatif7: g.formatif7 ?? (m['m1_c2'] !== undefined ? Number(m['m1_c2']) : null),
-        formatif8: g.formatif8 ?? (m['m1_c3'] !== undefined ? Number(m['m1_c3']) : null),
-        sumatifTengah:
-          g.sumatifTengah ??
-          (m['sumatif_tengah'] !== undefined ? Number(m['sumatif_tengah']) : null),
-        sumatifAkhir:
-          g.sumatifAkhir ??
-          (m['sumatif_akhir'] !== undefined ? Number(m['sumatif_akhir']) : null),
-        monthlyGrades: m,
-      };
-    });
+    const normalizedGrades = isLocked
+      ? []
+      : (data.grades || []).map((g) => {
+          const m = g.monthlyGrades || {};
+          return {
+            ...g,
+            formatif1: g.formatif1 ?? (m['m0_c0'] !== undefined ? Number(m['m0_c0']) : null),
+            formatif2: g.formatif2 ?? (m['m0_c1'] !== undefined ? Number(m['m0_c1']) : null),
+            formatif3: g.formatif3 ?? (m['m0_c2'] !== undefined ? Number(m['m0_c2']) : null),
+            formatif4: g.formatif4 ?? (m['m0_c3'] !== undefined ? Number(m['m0_c3']) : null),
+            formatif5: g.formatif5 ?? (m['m1_c0'] !== undefined ? Number(m['m1_c0']) : null),
+            formatif6: g.formatif6 ?? (m['m1_c1'] !== undefined ? Number(m['m1_c1']) : null),
+            formatif7: g.formatif7 ?? (m['m1_c2'] !== undefined ? Number(m['m1_c2']) : null),
+            formatif8: g.formatif8 ?? (m['m1_c3'] !== undefined ? Number(m['m1_c3']) : null),
+            sumatifTengah:
+              g.sumatifTengah ??
+              (m['sumatif_tengah'] !== undefined ? Number(m['sumatif_tengah']) : null),
+            sumatifAkhir:
+              g.sumatifAkhir ??
+              (m['sumatif_akhir'] !== undefined ? Number(m['sumatif_akhir']) : null),
+            monthlyGrades: m,
+          };
+        });
 
     const sanitized = sanitizeForFirestore({
       ...data,
+      students: isLocked ? [] : data.students,
       grades: normalizedGrades,
+      columnHeaders: isLocked ? undefined : data.columnHeaders,
+      isPublicEnabled: !isLocked,
       updatedAt: new Date().toISOString(),
     });
 
-    const cleanClass = data.classId ? data.classId.replace(/[^a-zA-Z0-9_-]/g, '') : '';
-    const cleanClassNoHyphen = data.classId ? data.classId.replace(/[^a-zA-Z0-9]/g, '') : '';
+    const allShareIds = this.getAllPossibleShareIds('nil', data.classId, data.teacherUid);
+    if (!allShareIds.includes(data.shareId)) {
+      allShareIds.push(data.shareId);
+    }
 
     // Instant local cache and broadcast channel for immediate zero-latency preview
     if (typeof window !== 'undefined') {
-      broadcastPreviewUpdate('nilai', data.shareId, data.classId, sanitized);
-      try {
-        localStorage.setItem(`cache_pub_nil_${data.shareId}`, JSON.stringify(sanitized));
-        if (cleanClass) localStorage.setItem(`cache_pub_nil_nil_${cleanClass}`, JSON.stringify(sanitized));
-        if (cleanClassNoHyphen) localStorage.setItem(`cache_pub_nil_nil_${cleanClassNoHyphen}`, JSON.stringify(sanitized));
-      } catch {}
+      allShareIds.forEach((sid) => {
+        broadcastPreviewUpdate('nilai', sid, data.classId, sanitized);
+        try {
+          localStorage.setItem(`cache_pub_nil_${sid}`, JSON.stringify(sanitized));
+        } catch {}
+      });
     }
 
     if (isQuotaExceeded()) return;
 
-    const publicRef = doc(db, 'public_nilai', data.shareId);
-    await safeSetDoc(publicRef, sanitized, { merge: true });
+    await Promise.allSettled(
+      allShareIds.map((sid) => {
+        const publicRef = doc(db, 'public_nilai', sid);
+        return safeSetDoc(publicRef, {
+          ...sanitized,
+          shareId: sid,
+        }, { merge: true });
+      })
+    );
   },
 
   /**
@@ -1838,11 +2091,10 @@ export const FirestoreService = {
     if (!shareId) return null;
     const publicRef = doc(db, 'public_nilai', shareId);
     const snap = await getDoc(publicRef);
+    let result: PublicNilaiData | null = null;
     if (snap.exists()) {
-      return snap.data() as PublicNilaiData;
-    }
-    // Try fallback alias if shareId was composite
-    if (shareId.startsWith('nil_')) {
+      result = snap.data() as PublicNilaiData;
+    } else if (shareId.startsWith('nil_')) {
       const parts = shareId.split('_');
       if (parts.length > 2) {
         const classPart = parts.slice(2).join('_');
@@ -1850,16 +2102,37 @@ export const FirestoreService = {
         const aliasRef = doc(db, 'public_nilai', `nil_${cleanClass}`);
         const aliasSnap = await getDoc(aliasRef);
         if (aliasSnap.exists()) {
-          return aliasSnap.data() as PublicNilaiData;
-        }
-        const noHyphen = cleanClass.replace(/[^a-zA-Z0-9]/g, '');
-        if (noHyphen !== cleanClass) {
-          const nhSnap = await getDoc(doc(db, 'public_nilai', `nil_${noHyphen}`));
-          if (nhSnap.exists()) return nhSnap.data() as PublicNilaiData;
+          result = aliasSnap.data() as PublicNilaiData;
+        } else {
+          const noHyphen = cleanClass.replace(/[^a-zA-Z0-9]/g, '');
+          if (noHyphen !== cleanClass) {
+            const nhSnap = await getDoc(doc(db, 'public_nilai', `nil_${noHyphen}`));
+            if (nhSnap.exists()) result = nhSnap.data() as PublicNilaiData;
+          }
         }
       }
     }
-    return null;
+
+    if (!result) return null;
+
+    // Check if canonical doc has locked this class
+    if (result.classId && result.isPublicEnabled === true) {
+      const teacherUid = result.teacherUid || (result as any).teacherId;
+      if (teacherUid) {
+        const canonicalId = this.getPublicNilaiShareId(teacherUid, result.classId);
+        if (canonicalId !== shareId) {
+          const canonSnap = await getDoc(doc(db, 'public_nilai', canonicalId));
+          if (canonSnap.exists()) {
+            const canonData = canonSnap.data() as PublicNilaiData;
+            if (canonData.isPublicEnabled === false) {
+              return { ...result, isPublicEnabled: false, students: [], grades: [] };
+            }
+          }
+        }
+      }
+    }
+
+    return result;
   },
 
   /**
@@ -1908,14 +2181,39 @@ export const FirestoreService = {
       }
     };
 
+    const verifyAuthoritativeData = async (rawDocData: PublicNilaiData): Promise<PublicNilaiData> => {
+      if (rawDocData.isPublicEnabled !== true) {
+        return { ...rawDocData, isPublicEnabled: false, students: [], grades: [] };
+      }
+      try {
+        const classId = rawDocData.classId;
+        const teacherUid = rawDocData.teacherUid || (rawDocData as any).teacherId;
+        if (classId && teacherUid) {
+          const canonicalId = this.getPublicNilaiShareId(teacherUid, classId);
+          if (canonicalId !== shareId) {
+            const canonSnap = await getDoc(doc(db, 'public_nilai', canonicalId));
+            if (canonSnap.exists()) {
+              const canonData = canonSnap.data() as PublicNilaiData;
+              if (canonData.isPublicEnabled === false) {
+                safeSetDoc(publicRef, { ...rawDocData, isPublicEnabled: false, students: [], grades: [] }, { merge: true }).catch(() => {});
+                return { ...rawDocData, isPublicEnabled: false, students: [], grades: [] };
+              }
+            }
+          }
+        }
+      } catch {}
+      return rawDocData;
+    };
+
     const primaryUnsub = onSnapshot(
       publicRef,
-      (snapshot) => {
+      async (snapshot) => {
         if (snapshot.exists()) {
           hasLoadedCloudData = true;
           const fresh = snapshot.data() as PublicNilaiData;
-          saveToCache(fresh);
-          onUpdate(fresh);
+          const verified = await verifyAuthoritativeData(fresh);
+          saveToCache(verified);
+          onUpdate(verified);
         } else {
           // If primary shareId is not found, try fallback class alias snapshot
           if (!hasLoadedCloudData && shareId.startsWith('nil_')) {
@@ -1927,19 +2225,21 @@ export const FirestoreService = {
               if (!fallbackUnsub) {
                 fallbackUnsub = onSnapshot(
                   aliasRef,
-                  (aliasSnap) => {
+                  async (aliasSnap) => {
                     if (aliasSnap.exists()) {
                       hasLoadedCloudData = true;
                       const aliasData = aliasSnap.data() as PublicNilaiData;
-                      saveToCache(aliasData);
+                      const verified = await verifyAuthoritativeData(aliasData);
+                      saveToCache(verified);
                       onUpdate(aliasData);
                     } else {
                       const noHyphen = cleanPart.replace(/[^a-zA-Z0-9]/g, '');
                       if (noHyphen !== cleanPart) {
-                        getDoc(doc(db, 'public_nilai', `nil_${noHyphen}`)).then((nhSnap) => {
+                        getDoc(doc(db, 'public_nilai', `nil_${noHyphen}`)).then(async (nhSnap) => {
                           if (nhSnap.exists()) {
                             const nhData = nhSnap.data() as PublicNilaiData;
-                            saveToCache(nhData);
+                            const verified = await verifyAuthoritativeData(nhData);
+                            saveToCache(verified);
                             onUpdate(nhData);
                           } else {
                             onUpdate(null);

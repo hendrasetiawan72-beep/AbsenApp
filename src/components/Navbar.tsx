@@ -44,6 +44,7 @@ interface NavbarProps {
   onOpenEditClass?: (cls?: ClassRoom) => void;
   onOpenLoginModal: () => void;
   onOpenBackupModal?: () => void;
+  onOpenAdminImportModal?: () => void;
   onResetData: () => void;
   onDeleteClass: (classId: string) => void;
   onLogout: () => void;
@@ -67,6 +68,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenEditClass,
   onOpenLoginModal,
   onOpenBackupModal,
+  onOpenAdminImportModal,
   onResetData,
   onDeleteClass,
   onLogout,
@@ -250,6 +252,19 @@ export const Navbar: React.FC<NavbarProps> = ({
               </button>
             )}
 
+            {/* Admin Migration / JSON Import Button */}
+            {onOpenAdminImportModal && (
+              <button
+                id="btn-admin-import-nav"
+                onClick={onOpenAdminImportModal}
+                title="Migrasi & Import Data JSON (Admin Only: Relasi ID, Dry Run, Proteksi Duplikat)"
+                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-bold text-indigo-700 bg-indigo-50/80 hover:bg-indigo-100 border border-indigo-200/90 rounded-xl transition-all cursor-pointer shadow-2xs"
+              >
+                <Database className="w-3.5 h-3.5 text-indigo-600" />
+                <span>Migrasi JSON</span>
+              </button>
+            )}
+
             {/* Backup & Restore Database JSON Button */}
             {onOpenBackupModal && (
               <button
@@ -258,7 +273,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                 title="Cadangkan & Pulihkan Seluruh Database ke File JSON Lokal (Kendali Penuh Guru)"
                 className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-bold text-slate-700 bg-white hover:bg-slate-100 border border-slate-200/90 rounded-xl transition-all cursor-pointer shadow-2xs"
               >
-                <Database className="w-3.5 h-3.5 text-indigo-600" />
+                <CloudUpload className="w-3.5 h-3.5 text-slate-600" />
                 <span className="hidden lg:inline">Backup Database</span>
               </button>
             )}

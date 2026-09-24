@@ -13,6 +13,7 @@ export type SavingCategory =
 
 export interface SavingTransaction {
   id: string;
+  legacy_id?: string;
   classId: string;
   studentId: string;
   studentName: string;

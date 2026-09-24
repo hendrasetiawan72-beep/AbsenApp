@@ -15,63 +15,67 @@ service cloud.firestore {
       allow read: if true;
     }
 
-    // Public real-time savings read for parents & students, and publishing by teachers
+    // Public real-time savings read for parents & students, and publishing by authenticated teachers
     match /public_tabungan/{shareId} {
-      allow read, write: if true;
+      allow read: if true;
+      allow create, update: if isSignedIn();
+      allow delete: if isSignedIn();
     }
 
-    // Public real-time attendance read for parents & students, and publishing by teachers
+    // Public real-time attendance read for parents & students, and publishing by authenticated teachers
     match /public_absensi/{shareId} {
-      allow read, write: if true;
+      allow read: if true;
+      allow create, update: if isSignedIn();
+      allow delete: if isSignedIn();
     }
 
     // Public share for grades (denormalized snapshot: public read, authenticated teacher write)
     match /nilai_shares/{shareId} {
       allow read: if true;
-      allow create, update: if request.auth != null && (request.resource.data.teacherUid == request.auth.uid || request.auth.uid != null);
-      allow delete: if request.auth != null && resource.data.teacherUid == request.auth.uid;
+      allow create, update: if isSignedIn();
+      allow delete: if isSignedIn();
     }
 
-    // Public grades & recap read for parents & students, and publishing by teachers
+    // Public grades & recap read for parents & students, and publishing by authenticated teachers
     match /public_nilai/{shareId} {
       allow read: if true;
-      allow create, update: if request.auth != null && (request.resource.data.teacherUid == request.auth.uid || request.auth.uid != null);
-      allow delete: if request.auth != null && resource.data.teacherUid == request.auth.uid;
+      allow create, update: if isSignedIn();
+      allow delete: if isSignedIn();
     }
 
-    // Teacher workspaces (fast real-time cross-device sync)
+    // Teacher workspaces (authenticated owner access only)
     match /teacher_workspaces/{teacherUid} {
-      allow read, write: if true;
+      allow read, write: if isSignedIn() && (request.auth.uid == teacherUid || resource == null || resource.data.teacherUid == request.auth.uid);
     }
 
     // User-isolated collections: users/{userId}/...
     match /users/{userId} {
-      allow read, write: if true;
+      allow read, write: if isSignedIn() && request.auth.uid == userId;
 
       match /{allPaths=**} {
-        allow read, write: if true;
+        allow read, write: if isSignedIn() && request.auth.uid == userId;
       }
     }
 
-    // Root collections with teacherUid check
+    // Granular root collections with authentication
     match /classes/{classId} {
-      allow read, write: if true;
+      allow read, write: if isSignedIn();
     }
 
     match /attendance_sessions/{sessionId} {
-      allow read, write: if true;
+      allow read, write: if isSignedIn();
     }
 
     match /students/{studentId} {
-      allow read, write: if true;
+      allow read, write: if isSignedIn();
     }
 
     match /grades/{gradeId} {
-      allow read, write: if true;
+      allow read, write: if isSignedIn();
     }
 
     match /teaching_agendas/{agendaId} {
-      allow read, write: if true;
+      allow read, write: if isSignedIn();
     }
   }
 }

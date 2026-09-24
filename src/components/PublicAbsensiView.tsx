@@ -127,6 +127,17 @@ export const PublicAbsensiView: React.FC<PublicAbsensiViewProps> = ({
     const applyDataUpdate = (updatedData: PublicAbsensiData | null) => {
       setIsLoading(false);
       if (updatedData) {
+        if (updatedData.isPublicEnabled !== true) {
+          updatedData.students = [];
+          updatedData.sessions = [];
+          try {
+            localStorage.setItem(`cache_pub_abs_${shareId}`, JSON.stringify(updatedData));
+            if (updatedData.classId) {
+              const cleanC = updatedData.classId.replace(/[^a-zA-Z0-9_-]/g, '');
+              localStorage.setItem(`cache_pub_abs_abs_${cleanC}`, JSON.stringify(updatedData));
+            }
+          } catch {}
+        }
         setData(updatedData);
         setIsLiveConnected(true);
         const nowStr = new Date().toLocaleTimeString('id-ID', {

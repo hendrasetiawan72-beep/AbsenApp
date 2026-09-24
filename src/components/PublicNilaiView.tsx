@@ -126,6 +126,17 @@ export const PublicNilaiView: React.FC<PublicNilaiViewProps> = ({
     const applyDataUpdate = (updatedData: PublicNilaiData | null) => {
       setIsLoading(false);
       if (updatedData) {
+        if (updatedData.isPublicEnabled !== true) {
+          updatedData.students = [];
+          updatedData.grades = [];
+          try {
+            localStorage.setItem(`cache_pub_nil_${shareId}`, JSON.stringify(updatedData));
+            if (updatedData.classId) {
+              const cleanC = updatedData.classId.replace(/[^a-zA-Z0-9_-]/g, '');
+              localStorage.setItem(`cache_pub_nil_nil_${cleanC}`, JSON.stringify(updatedData));
+            }
+          } catch {}
+        }
         setData(updatedData);
         setIsLiveConnected(true);
         const nowStr = new Date().toLocaleTimeString('id-ID', {

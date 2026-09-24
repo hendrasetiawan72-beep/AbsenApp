@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   School,
   UserCheck,
@@ -46,6 +46,7 @@ import { SpreadsheetImportModal } from './components/SpreadsheetImportModal';
 import { GoogleLoginScreen } from './components/GoogleLoginScreen';
 import { DeleteClassModal } from './components/DeleteClassModal';
 import { BackupRestoreModal } from './components/BackupRestoreModal';
+import { AdminImportModal } from './components/AdminImportModal';
 import { GoogleWorkspaceView } from './components/GoogleWorkspaceView';
 import { SchoolMapView } from './components/SchoolMapView';
 import { PromptGeneratorModulView } from './components/PromptGeneratorModulView';
@@ -128,6 +129,7 @@ export default function App() {
   const [lastSavingsCloudSavedAt, setLastSavingsCloudSavedAt] = useState<string | null>(null);
   const [hasUnsavedSavingsChanges, setHasUnsavedSavingsChanges] = useState<boolean>(false);
   const [isBackupModalOpen, setIsBackupModalOpen] = useState<boolean>(false);
+  const [isAdminImportModalOpen, setIsAdminImportModalOpen] = useState<boolean>(false);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
 
   const showToast = (message: string, type: 'success' | 'error' | 'info' = 'success') => {
@@ -176,7 +178,63 @@ export default function App() {
   const [isDeleteClassModalOpen, setIsDeleteClassModalOpen] = useState(false);
   const [classToDeleteId, setClassToDeleteId] = useState<string | null>(null);
 
-  // Firebase Auth State Listener & Browser-First Data Priority
+  // Guard flag to prevent Storage.set... from creating fake pending changes when applying cloud data
+  const isApplyingRemoteDataRef = useRef(false);
+
+  /**
+   * Safely applies incoming workspace data to both React state and Browser Storage,
+   * without triggering fake local change notifications or loops.
+   */
+  const applyWorkspaceToStateAndStorage = (userData: any) => {
+    isApplyingRemoteDataRef.current = true;
+    try {
+      if (userData.teacher) {
+        Storage.setTeacher(userData.teacher, true);
+        setTeacher(userData.teacher);
+      }
+      if (Array.isArray(userData.classes) && userData.classes.length > 0) {
+        Storage.setClasses(userData.classes, true);
+        setClasses(userData.classes);
+      }
+      if (userData.activeClassId) {
+        Storage.setActiveClassId(userData.activeClassId);
+        setActiveClassId(userData.activeClassId);
+      } else if (userData.classes?.[0]?.id) {
+        Storage.setActiveClassId(userData.classes[0].id);
+        setActiveClassId(userData.classes[0].id);
+      }
+      if (Array.isArray(userData.students)) {
+        Storage.setAllStudents(userData.students, true);
+        setAllStudents(userData.students);
+      }
+      if (Array.isArray(userData.sessions)) {
+        Storage.setAllSessions(userData.sessions, true);
+        setAllSessions(userData.sessions);
+      }
+      if (Array.isArray(userData.grades)) {
+        Storage.setAllGrades(userData.grades, true);
+        setAllGrades(userData.grades);
+      }
+      if (Array.isArray(userData.agendas)) {
+        Storage.setAllAgendas(userData.agendas, true);
+        setAllAgendas(userData.agendas);
+      }
+      if (Array.isArray(userData.savings)) {
+        Storage.setAllSavings(userData.savings, true);
+        setAllSavings(userData.savings);
+      }
+      if (userData.gradeHeadersMap) {
+        Storage.setAllGradeHeadersMap(userData.gradeHeadersMap, true);
+      }
+      GradualSyncManager.markCloudSynced();
+    } finally {
+      setTimeout(() => {
+        isApplyingRemoteDataRef.current = false;
+      }, 150);
+    }
+  };
+
+  // Firebase Auth State Listener & Browser-Cloud Alignment
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
@@ -184,61 +242,75 @@ export default function App() {
         sessionStorage.setItem('sim_google_auth_active', 'true');
         localStorage.setItem('sim_google_auth_active', 'true');
         GradualSyncManager.setActiveUid(firebaseUser.uid);
+        try {
+          localStorage.setItem('smk_active_teacher_uid', firebaseUser.uid);
+        } catch {}
 
-        // Prioritas Browser: Cek data yang sudah tersimpan di browser terlebih dahulu
-        const localClasses = Storage.getClasses();
-        const hasLocalData = localClasses.length > 0;
-
-        // Jika data sudah ada di browser, gunakan langsung tanpa membuang kuota pembacaan Cloud!
-        if (hasLocalData) {
-          setIsCloudLoading(false);
-          console.log('[App] Data dimuat dari browser lokal. Gunakan tombol navigasi untuk sinkronisasi ke Cloud.');
-          return;
-        }
-
-        // Hanya jika browser benar-benar kosong, ambil data dari cloud untuk pertama kali
         setIsCloudLoading(true);
-        setCloudStatusMsg(`Memeriksa data Cloud untuk ${firebaseUser.email || 'pengguna'}...`);
+        setCloudStatusMsg(`Menyelaraskan data Cloud untuk ${firebaseUser.email || 'pengguna'}...`);
 
         try {
-          const userData = await FirestoreService.loadUserData(firebaseUser.uid);
+          const userData = await FirestoreService.loadUserData(firebaseUser.uid, false);
 
           if (userData.isNewUser) {
-            setCloudStatusMsg('Menyiapkan ruang kelas & data awal Anda...');
-            const seeded = await FirestoreService.seedInitialUserData(
-              firebaseUser.uid,
-              firebaseUser
-            );
-            setTeacher(seeded.teacher);
-            setClasses(seeded.classes);
-            setActiveClassId(seeded.activeClassId);
-            setAllStudents(seeded.students);
-            setAllSessions(seeded.sessions);
-            setAllGrades(seeded.grades);
-            if ((seeded as any).savings) {
-              setAllSavings((seeded as any).savings);
+            // Check if user already entered custom data locally in the browser
+            if (Storage.hasCustomLocalData()) {
+              setCloudStatusMsg('Menyimpan data browser lokal Anda ke Cloud Firestore...');
+              await FirestoreService.saveFullWorkspace(firebaseUser.uid, {
+                teacher: Storage.getTeacher(),
+                classes: Storage.getClasses(),
+                activeClassId: Storage.getActiveClassId(),
+                students: Storage.getAllStudents(),
+                sessions: Storage.getAllSessions(),
+                grades: Storage.getAllGrades(),
+                agendas: Storage.getAllAgendas(),
+                savings: Storage.getAllSavings(),
+                gradeHeadersMap: Storage.getAllGradeHeadersMap(),
+              });
+              GradualSyncManager.markCloudSynced();
+              showToast('Data browser berhasil diselaraskan ke akun Cloud Firestore Anda!', 'success');
+            } else {
+              setCloudStatusMsg('Menyiapkan ruang kelas & data awal Anda...');
+              const seeded = await FirestoreService.seedInitialUserData(
+                firebaseUser.uid,
+                firebaseUser
+              );
+              applyWorkspaceToStateAndStorage(seeded);
+              showToast('Akun Google terhubung! Data baru disiapkan.', 'success');
             }
-            showToast('Akun Google terhubung! Data baru disiapkan di browser.', 'success');
           } else {
-            setTeacher(userData.teacher);
-            setClasses(userData.classes);
-            setActiveClassId(userData.activeClassId);
-            setAllStudents(userData.students);
-            setAllSessions(userData.sessions);
-            setAllGrades(userData.grades);
-            if (userData.agendas) {
-              setAllAgendas(userData.agendas);
+            // User exists in Cloud: check if local browser has newer pending changes
+            const hasPendingChanges = GradualSyncManager.getPendingQueue().length > 0;
+            const isLocalNewer = GradualSyncManager.isLocalNewerThan(userData.updatedAt);
+
+            if (hasPendingChanges && isLocalNewer) {
+              // Browser has newer edits made offline: push them to Cloud!
+              console.log('[App] Local changes detected, pushing to Cloud Firestore...');
+              await FirestoreService.saveFullWorkspace(firebaseUser.uid, {
+                teacher: Storage.getTeacher(),
+                classes: Storage.getClasses(),
+                activeClassId: Storage.getActiveClassId(),
+                students: Storage.getAllStudents(),
+                sessions: Storage.getAllSessions(),
+                grades: Storage.getAllGrades(),
+                agendas: Storage.getAllAgendas(),
+                savings: Storage.getAllSavings(),
+                gradeHeadersMap: Storage.getAllGradeHeadersMap(),
+              });
+              GradualSyncManager.markCloudSynced();
+              showToast('Perubahan browser terbaru berhasil disinkronkan ke Cloud!', 'success');
+            } else {
+              // Remote cloud data is up-to-date or newer: apply to browser!
+              applyWorkspaceToStateAndStorage(userData);
+              FirestoreService.broadcastAllLocalPreviews(firebaseUser.uid);
+              showToast(
+                `Selamat datang, ${userData.teacher.namaGuru || firebaseUser.displayName || 'Guru'}. Data berhasil diselaraskan!`,
+                'success'
+              );
             }
-            if ((userData as any).savings) {
-              setAllSavings((userData as any).savings);
-            }
-            showToast(
-              `Selamat datang, ${userData.teacher.namaGuru || firebaseUser.displayName || 'Guru'}. Data dimuat ke browser.`,
-              'success'
-            );
           }
         } catch (error: any) {
-          console.error('[App] Notice loading from Cloud Firestore:', error);
+          console.error('[App] Notice syncing from Cloud Firestore:', error);
           showToast('Menggunakan data tersimpan di browser lokal.', 'info');
         } finally {
           setIsCloudLoading(false);
@@ -270,8 +342,19 @@ export default function App() {
     setIsCloudSaving(true);
     setCloudStatusMsg('Menyinkronkan data browser & memperbarui link preview ke server cloud...');
     try {
-      // 1. Direct workspace push to Cloud Firestore
-      const ok = await GradualSyncManager.forceSyncNow();
+      // 1. Direct workspace push to Cloud Firestore with all gradeHeaders and access flags
+      await FirestoreService.saveFullWorkspace(uid, {
+        teacher: Storage.getTeacher(),
+        classes: Storage.getClasses(),
+        activeClassId: Storage.getActiveClassId(),
+        students: Storage.getAllStudents(),
+        sessions: Storage.getAllSessions(),
+        grades: Storage.getAllGrades(),
+        agendas: Storage.getAllAgendas(),
+        savings: Storage.getAllSavings(),
+        gradeHeadersMap: Storage.getAllGradeHeadersMap(),
+      });
+      GradualSyncManager.markCloudSynced();
 
       // 2. Synchronize all public preview snapshots (absensi, nilai, tabungan) for active classes
       const previewSyncResult = await FirestoreService.syncAllPublicSnapshots(uid, {
@@ -283,14 +366,13 @@ export default function App() {
         savings: Storage.getAllSavings(),
       });
 
-      if (ok) {
-        showToast(
-          `Semua data browser dan ${previewSyncResult.totalSnapshots} link preview langsung terhubung & tersinkronkan ke Cloud!`,
-          'success'
-        );
-      } else {
-        showToast('Data tersimpan aman di browser & link preview telah diperbarui.', 'info');
-      }
+      // 3. Broadcast to all open preview windows
+      FirestoreService.broadcastAllLocalPreviews(uid);
+
+      showToast(
+        `Semua data browser dan ${previewSyncResult.totalSnapshots} link preview langsung terhubung & tersinkronkan ke Cloud!`,
+        'success'
+      );
     } catch (err: any) {
       showToast('Data tersimpan di browser. Sinkron ke cloud tertunda: ' + (err?.message || 'koneksi'), 'info');
     } finally {
@@ -311,28 +393,7 @@ export default function App() {
       if (userData.isNewUser) {
         showToast('Data di Cloud Firestore masih kosong. Data lokal Anda tetap aktif.', 'info');
       } else {
-        // Immediate sync to Storage (browser storage)
-        if (userData.teacher) Storage.setTeacher(userData.teacher);
-        if (Array.isArray(userData.classes)) Storage.setClasses(userData.classes);
-        if (userData.activeClassId) Storage.setActiveClassId(userData.activeClassId);
-        if (Array.isArray(userData.students)) Storage.setAllStudents(userData.students);
-        if (Array.isArray(userData.sessions)) Storage.setAllSessions(userData.sessions);
-        if (Array.isArray(userData.grades)) Storage.setAllGrades(userData.grades);
-        if (Array.isArray(userData.agendas)) Storage.setAllAgendas(userData.agendas);
-        if (Array.isArray((userData as any).savings)) Storage.setAllSavings((userData as any).savings);
-
-        // Immediate React states update so everything shows immediately in UI
-        if (userData.teacher) setTeacher(userData.teacher);
-        if (Array.isArray(userData.classes)) setClasses(userData.classes);
-        if (userData.activeClassId) setActiveClassId(userData.activeClassId);
-        if (Array.isArray(userData.students)) setAllStudents(userData.students);
-        if (Array.isArray(userData.sessions)) setAllSessions(userData.sessions);
-        if (Array.isArray(userData.grades)) setAllGrades(userData.grades);
-        if (Array.isArray(userData.agendas)) setAllAgendas(userData.agendas);
-        if (Array.isArray((userData as any).savings)) setAllSavings((userData as any).savings);
-
-        // Mark local as completely synced with cloud
-        GradualSyncManager.markCloudSynced();
+        applyWorkspaceToStateAndStorage(userData);
 
         // Broadcast to all preview tabs/windows so open links show fresh pulled data instantly
         FirestoreService.broadcastAllLocalPreviews(uid);
@@ -349,34 +410,42 @@ export default function App() {
 
   // Sync to Storage whenever state updates as secondary offline cache
   useEffect(() => {
+    if (isApplyingRemoteDataRef.current) return;
     Storage.setTeacher(teacher);
   }, [teacher]);
 
   useEffect(() => {
+    if (isApplyingRemoteDataRef.current) return;
     Storage.setClasses(classes);
   }, [classes]);
 
   useEffect(() => {
+    if (isApplyingRemoteDataRef.current) return;
     Storage.setActiveClassId(activeClassId);
   }, [activeClassId]);
 
   useEffect(() => {
+    if (isApplyingRemoteDataRef.current) return;
     Storage.setAllStudents(allStudents);
   }, [allStudents]);
 
   useEffect(() => {
+    if (isApplyingRemoteDataRef.current) return;
     Storage.setAllSessions(allSessions);
   }, [allSessions]);
 
   useEffect(() => {
+    if (isApplyingRemoteDataRef.current) return;
     Storage.setAllGrades(allGrades);
   }, [allGrades]);
 
   useEffect(() => {
+    if (isApplyingRemoteDataRef.current) return;
     Storage.setAllAgendas(allAgendas);
   }, [allAgendas]);
 
   useEffect(() => {
+    if (isApplyingRemoteDataRef.current) return;
     Storage.setAllSavings(allSavings);
   }, [allSavings]);
 
@@ -943,13 +1012,14 @@ export default function App() {
 
   // Handlers for Students
   const handleSaveStudent = async (student: Student) => {
-    setAllStudents((prev) => {
-      const exists = prev.some((s) => s.id === student.id);
-      if (exists) {
-        return prev.map((s) => (s.id === student.id ? student : s));
-      }
-      return [...prev, student];
-    });
+    const currentStudents = Storage.getAllStudents();
+    const exists = currentStudents.some((s) => s.id === student.id);
+    const updated = exists
+      ? currentStudents.map((s) => (s.id === student.id ? student : s))
+      : [...currentStudents, student];
+
+    setAllStudents(updated);
+    Storage.setAllStudents(updated);
 
     if (auth.currentUser) {
       setIsCloudSaving(true);
@@ -965,9 +1035,16 @@ export default function App() {
   };
 
   const handleDeleteStudent = async (studentId: string) => {
-    setAllStudents((prev) => prev.filter((s) => s.id !== studentId));
+    const currentStudents = Storage.getAllStudents();
+    const updatedStudents = currentStudents.filter((s) => s.id !== studentId);
+    setAllStudents(updatedStudents);
+    Storage.setAllStudents(updatedStudents);
+
     // Clean up grades
-    setAllGrades((prev) => prev.filter((g) => g.studentId !== studentId));
+    const currentGrades = Storage.getAllGrades();
+    const updatedGrades = currentGrades.filter((g) => g.studentId !== studentId);
+    setAllGrades(updatedGrades);
+    Storage.setAllGrades(updatedGrades);
 
     if (auth.currentUser) {
       setIsCloudSaving(true);
@@ -988,26 +1065,23 @@ export default function App() {
     value: any
   ) => {
     let updatedTargetStudent: Student | null = null;
-    setAllStudents((prev) =>
-      prev.map((s) => {
-        if (s.id === studentId) {
-          const updated = { ...s, [field]: value };
-          updatedTargetStudent = updated;
-          return updated;
-        }
-        return s;
-      })
-    );
+    const currentStudents = Storage.getAllStudents();
+    const updatedStudents = currentStudents.map((s) => {
+      if (s.id === studentId) {
+        const u = { ...s, [field]: value };
+        updatedTargetStudent = u;
+        return u;
+      }
+      return s;
+    });
+
+    setAllStudents(updatedStudents);
+    Storage.setAllStudents(updatedStudents);
 
     if (auth.currentUser && updatedTargetStudent) {
-      setIsCloudSaving(true);
-      try {
-        await FirestoreService.saveStudent(auth.currentUser.uid, updatedTargetStudent);
-      } catch (err: any) {
-        showToast('Gagal menyimpan perubahan siswa ke Cloud: ' + err.message, 'error');
-      } finally {
-        setIsCloudSaving(false);
-      }
+      FirestoreService.saveStudent(auth.currentUser.uid, updatedTargetStudent).catch((err: any) => {
+        console.warn('Gagal menyimpan perubahan siswa ke Cloud:', err);
+      });
     }
   };
 
@@ -1520,6 +1594,7 @@ export default function App() {
         onOpenEditClass={handleOpenEditClass}
         onOpenLoginModal={() => setIsLoginModalOpen(true)}
         onOpenBackupModal={() => setIsBackupModalOpen(true)}
+        onOpenAdminImportModal={() => setIsAdminImportModalOpen(true)}
         onResetData={handleResetData}
         onDeleteClass={handleRequestDeleteClass}
         onLogout={handleLogout}
@@ -1880,6 +1955,22 @@ export default function App() {
       <BackupRestoreModal
         isOpen={isBackupModalOpen}
         onClose={() => setIsBackupModalOpen(false)}
+        teacher={teacher}
+        classes={classes}
+        activeClassId={activeClassId}
+        allStudents={allStudents}
+        allSessions={allSessions}
+        allGrades={allGrades}
+        allAgendas={allAgendas}
+        allSavings={allSavings}
+        onApplyRestoredData={handleApplyRestoredData}
+        onShowToast={showToast}
+      />
+
+      {/* Admin JSON Migration Modal (Relasi ID, Dry Run, Proteksi Duplikat & Audit) */}
+      <AdminImportModal
+        isOpen={isAdminImportModalOpen}
+        onClose={() => setIsAdminImportModalOpen(false)}
         teacher={teacher}
         classes={classes}
         activeClassId={activeClassId}

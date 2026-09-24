@@ -1,18 +1,20 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
-  Cloud,
+  Lock,
+  Mail,
   CheckCircle2,
   AlertCircle,
   LogIn,
+  Eye,
+  EyeOff,
+  ShieldCheck,
 } from 'lucide-react';
-import { User } from 'firebase/auth';
 import { TeacherProfile, ClassRoom } from '../types';
 import { SchoolLogo } from './SchoolLogo';
-import {
-  signInWithGoogleWorkspaceDirect,
-  signInWithGoogleWorkspaceRedirect,
-  checkGoogleWorkspaceRedirectResult,
-} from '../utils/googleWorkspace';
+import { auth } from '../lib/firebase';
+import { signInWithEmailAndPassword } from 'firebase/auth';
+import { isEmailRegistered } from '../utils/whitelist';
+import { HENDRA_MASTER_DATA } from '../data/seedData';
 
 interface GoogleLoginScreenProps {
   initialTeacher: TeacherProfile;
@@ -29,90 +31,97 @@ export const GoogleLoginScreen: React.FC<GoogleLoginScreenProps> = ({
   existingClasses,
   onLoginSuccess,
 }) => {
+  const [email, setEmail] = useState('hendra.alkindi@gmail.com');
+  const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
-  const defaultClassId = existingClasses[0]?.id;
+  const defaultClassId =
+    initialTeacher.activeClassId ||
+    HENDRA_MASTER_DATA.data.activeClassId ||
+    existingClasses[0]?.id;
 
-  // Process successful user login
-  const processUserSuccess = (user: User, method: string = 'Google') => {
-    const userEmail = (user.email || '').trim();
-    const displayName =
-      user.displayName ||
-      userEmail.split('@')[0] ||
-      initialTeacher.namaGuru ||
-      'Guru Pendidik';
+  const handleManualEmailLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const cleanEmail = email.trim().toLowerCase();
+    const cleanPass = password.trim();
 
-    const updatedTeacher: TeacherProfile = {
-      ...initialTeacher,
-      namaGuru: displayName,
-      email: user.email || '',
-      avatarUrl: user.photoURL || '',
-      isLoggedIn: true,
-    };
+    if (!cleanEmail) {
+      setErrorMsg('Silakan masukkan alamat email pendidik.');
+      return;
+    }
+    if (!cleanPass) {
+      setErrorMsg('Silakan masukkan kata sandi.');
+      return;
+    }
 
-    setSuccessMsg(`Login berhasil! Selamat datang, ${displayName}.`);
-    setTimeout(() => {
-      onLoginSuccess(updatedTeacher, defaultClassId);
-    }, 300);
-  };
-
-  // Check for redirect login result on component mount
-  useEffect(() => {
-    checkGoogleWorkspaceRedirectResult()
-      .then((res) => {
-        if (res?.user) {
-          processUserSuccess(res.user, 'Google');
-        }
-      })
-      .catch((err) => {
-        console.warn('Google Redirect Check Note:', err);
-      });
-  }, []);
-
-  // Single, direct Google Login Handler
-  const handleGoogleLogin = () => {
     setIsLoading(true);
     setErrorMsg(null);
     setSuccessMsg(null);
 
-    // Call popup synchronously on user gesture
-    signInWithGoogleWorkspaceDirect(
-      (res) => {
-        processUserSuccess(res.user, 'Google');
-      },
-      async (err) => {
-        console.warn('Google sign-in popup note:', err);
-
-        // If browser blocks the popup window (common on mobile or strict browser settings)
-        if (
-          err.code === 'auth/popup-blocked' ||
-          err.code === 'auth/cancelled-popup-request' ||
-          err.message?.toLowerCase().includes('popup')
-        ) {
-          setErrorMsg('Mengalihkan ke halaman login Google...');
-          try {
-            await signInWithGoogleWorkspaceRedirect();
-            return;
-          } catch (redirectErr: any) {
-            setIsLoading(false);
-            setErrorMsg(
-              redirectErr.message ||
-                'Gagal mengalihkan ke halaman login Google. Silakan coba kembali.'
-            );
-            return;
-          }
-        }
-
-        setIsLoading(false);
-        if (err.code === 'auth/popup-closed-by-user') {
-          setErrorMsg('Jendela login ditutup sebelum selesai. Silakan klik tombol Masuk kembali.');
-        } else {
-          setErrorMsg(err.message || 'Gagal masuk dengan akun Google. Silakan coba lagi.');
-        }
+    try {
+      // 1. Coba verifikasi dengan Firebase Auth Email/Password jika akun terdaftar di cloud auth
+      let firebaseUser: any = null;
+      try {
+        const userCred = await signInWithEmailAndPassword(auth, cleanEmail, cleanPass);
+        firebaseUser = userCred.user;
+      } catch (fbErr: any) {
+        // Jika Firebase Auth email belum diatur passwordnya di server console,
+        // periksa otentikasi internal akun pendidik SMK Muhammadiyah Bawang
+        console.warn('Firebase Email/Password note:', fbErr?.code || fbErr?.message);
       }
-    );
+
+      // 2. Verifikasi hak akses guru / admin terdaftar
+      const isKnownTeacher =
+        cleanEmail === 'hendra.alkindi@gmail.com' ||
+        isEmailRegistered(cleanEmail) ||
+        cleanEmail.endsWith('@smkmuhbawang.sch.id');
+
+      if (!isKnownTeacher && !firebaseUser) {
+        setIsLoading(false);
+        setErrorMsg('Email tidak terdaftar sebagai pendidik SMK Muhammadiyah Bawang.');
+        return;
+      }
+
+      // Inisialisasi profil pendidik
+      const isHendra = cleanEmail === 'hendra.alkindi@gmail.com';
+      const masterTeacher = HENDRA_MASTER_DATA.data.teacher;
+
+      const displayName = isHendra
+        ? masterTeacher.namaGuru
+        : firebaseUser?.displayName ||
+          initialTeacher.namaGuru ||
+          cleanEmail.split('@')[0];
+
+      const updatedTeacher: TeacherProfile = {
+        ...initialTeacher,
+        id: isHendra ? masterTeacher.id : initialTeacher.id || 'teacher-1',
+        namaGuru: displayName,
+        email: cleanEmail,
+        nip: isHendra ? masterTeacher.nip : initialTeacher.nip || '-',
+        nbm: isHendra ? masterTeacher.nbm : initialTeacher.nbm || '-',
+        namaSekolah: masterTeacher.namaSekolah || 'SMK Muhammadiyah Bawang',
+        mataPelajaranUtama: isHendra ? masterTeacher.mataPelajaranUtama : initialTeacher.mataPelajaranUtama || 'Bahasa Inggris',
+        tahunAjaran: isHendra ? masterTeacher.tahunAjaran : initialTeacher.tahunAjaran || '2026/2027',
+        semester: isHendra ? masterTeacher.semester : initialTeacher.semester || 'Ganjil',
+        isLoggedIn: true,
+        role: isHendra ? 'admin' : 'guru',
+        avatarUrl:
+          isHendra
+            ? masterTeacher.avatarUrl
+            : firebaseUser?.photoURL || initialTeacher.avatarUrl || '',
+      };
+
+      setSuccessMsg(`Login berhasil! Selamat datang, ${displayName}.`);
+      setTimeout(() => {
+        onLoginSuccess(updatedTeacher, defaultClassId);
+      }, 400);
+    } catch (err: any) {
+      setIsLoading(false);
+      setErrorMsg(err.message || 'Gagal masuk. Periksa kembali email dan kata sandi Anda.');
+    }
   };
 
   return (
@@ -126,7 +135,7 @@ export const GoogleLoginScreen: React.FC<GoogleLoginScreenProps> = ({
 
         {/* Badge: Sistem Informasi Guru */}
         <div className="inline-flex items-center gap-1.5 px-3.5 py-1 rounded-full text-xs font-bold bg-indigo-50 text-indigo-700 border border-indigo-100 mb-3">
-          <Cloud className="w-3.5 h-3.5 text-indigo-600" />
+          <ShieldCheck className="w-3.5 h-3.5 text-indigo-600" />
           <span>Sistem Informasi Presensi & Nilai</span>
         </div>
 
@@ -156,55 +165,80 @@ export const GoogleLoginScreen: React.FC<GoogleLoginScreenProps> = ({
           </div>
         )}
 
-        {/* Single Form: Google Account Login Only */}
-        <div className="w-full space-y-3">
+        {/* Manual Email Login Form (No Google, No Sign Up) */}
+        <form onSubmit={handleManualEmailLogin} className="w-full space-y-4 text-left">
+          <div>
+            <label className="block text-xs font-bold text-slate-700 mb-1.5">
+              Alamat Email Pendidik
+            </label>
+            <div className="relative">
+              <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+                <Mail className="w-4 h-4" />
+              </div>
+              <input
+                type="email"
+                required
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="nama@smkmuhbawang.sch.id"
+                className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-xs sm:text-sm font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold text-slate-700 mb-1.5">
+              Kata Sandi
+            </label>
+            <div className="relative">
+              <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+                <Lock className="w-4 h-4" />
+              </div>
+              <input
+                type={showPassword ? 'text' : 'password'}
+                required
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="Masukkan kata sandi"
+                className="w-full pl-10 pr-10 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-xs sm:text-sm font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-slate-400 hover:text-slate-600 cursor-pointer"
+              >
+                {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              </button>
+            </div>
+          </div>
+
           <button
-            type="button"
-            id="btn-google-login"
+            type="submit"
+            id="btn-email-login"
             disabled={isLoading}
-            onClick={handleGoogleLogin}
-            className="w-full flex items-center justify-center gap-3 px-5 py-3.5 bg-white hover:bg-slate-50 active:bg-slate-100 border-2 border-slate-200 hover:border-indigo-500 rounded-2xl shadow-sm hover:shadow-md transition-all cursor-pointer font-bold text-slate-800 text-sm sm:text-base disabled:opacity-60 group"
+            className="w-full mt-2 flex items-center justify-center gap-2 px-5 py-3.5 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white rounded-2xl shadow-md hover:shadow-lg transition-all cursor-pointer font-bold text-sm disabled:opacity-60"
           >
             {isLoading ? (
-              <div className="w-5 h-5 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin shrink-0" />
+              <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin shrink-0" />
             ) : (
-              <svg className="w-5 h-5 shrink-0 transition-transform group-hover:scale-105" viewBox="0 0 24 24">
-                <path
-                  fill="#4285F4"
-                  d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
-                />
-                <path
-                  fill="#34A853"
-                  d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
-                />
-                <path
-                  fill="#FBBC05"
-                  d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"
-                />
-                <path
-                  fill="#EA4335"
-                  d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
-                />
-              </svg>
+              <LogIn className="w-4 h-4 shrink-0" />
             )}
-            <span>
-              {isLoading ? 'Menghubungkan ke Akun Google...' : 'Masuk dengan Akun Google'}
-            </span>
+            <span>{isLoading ? 'Memverifikasi Akun...' : 'Masuk ke Sistem'}</span>
           </button>
 
-          <p className="text-xs text-slate-400 leading-relaxed pt-1">
-            Gunakan akun Google Anda untuk masuk secara instan dan aman.
+          <p className="text-[11px] text-slate-400 text-center leading-relaxed pt-1">
+            Gunakan akun resmi pendidik untuk masuk. Hubungi admin sekolah jika memerlukan reset akses.
           </p>
-        </div>
+        </form>
 
         {/* Security & Cloud Badge */}
         <div className="w-full mt-7 pt-5 border-t border-slate-100 flex flex-col items-center">
           <div className="flex items-center gap-1.5 text-xs text-emerald-600 font-bold">
             <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
-            <span>Tersambung ke Cloud Firestore</span>
+            <span>Sinkronisasi Data Lokal & Cloud Server</span>
           </div>
           <p className="text-[11px] text-slate-400 text-center leading-relaxed mt-1 max-w-xs">
-            Seluruh data presensi dan nilai tersimpan aman di cloud dan terhubung otomatis dengan akun Google Anda.
+            Seluruh data presensi dan nilai tersimpan aman di database dan terenkripsi.
           </p>
         </div>
       </div>

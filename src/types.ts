@@ -4,6 +4,7 @@ export type AttendanceStatus = 'H' | 'S' | 'I' | 'A';
 
 export interface TeacherProfile {
   id: string;
+  legacy_id?: string;
   namaGuru: string;
   nip: string;
   nbm?: string; // Nomor Baku Muhammadiyah (NBM)
@@ -16,10 +17,13 @@ export interface TeacherProfile {
   avatarUrl?: string;
   googleId?: string;
   activeClassId?: string;
+  role?: 'admin' | 'guru';
 }
 
 export interface ClassRoom {
   id: string;
+  legacy_id?: string;
+  teacherUid?: string;
   namaKelas: string;
   mataPelajaran: string;
   kkm: number;
@@ -30,9 +34,11 @@ export interface ClassRoom {
 
 export interface Student {
   id: string;
+  legacy_id?: string;
   classId: string;
   no: number;
   nisn: string;
+  nis?: string;
   nama: string;
   gender: Gender;
   catatanUmum: string;
@@ -46,6 +52,7 @@ export interface AttendanceRecordItem {
 
 export interface AttendanceSession {
   id: string;
+  legacy_id?: string;
   classId: string;
   tanggal: string; // YYYY-MM-DD
   pertemuanKe: number;
@@ -65,6 +72,7 @@ export interface GradeColumnHeader {
 
 export interface StudentGrade {
   id: string;
+  legacy_id?: string;
   studentId: string;
   classId: string;
 
@@ -110,6 +118,7 @@ export interface CalculatedGrade {
 
 export interface TeachingAgenda {
   id: string;
+  legacy_id?: string;
   tanggal: string; // YYYY-MM-DD
   hari?: string; // e.g. 'Senin'
   jamKe: number[]; // e.g. [1, 2, 3]

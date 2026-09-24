@@ -292,14 +292,14 @@ export const SharePublicTabunganModal: React.FC<SharePublicTabunganModalProps> =
         semester: teacher.semester || 'Ganjil',
         teacherUid: currentUid,
         updatedAt: new Date().toISOString(),
-        students: students.map((s) => ({
+        students: nextState ? students.map((s) => ({
           id: s.id,
           no: s.no,
           nisn: s.nisn || '',
           nama: s.nama,
           gender: s.gender,
-        })),
-        savings: savings.filter((tx) => tx.classId === currentClass.id),
+        })) : [],
+        savings: nextState ? savings.filter((tx) => tx.classId === currentClass.id) : [],
         isPublicEnabled: nextState,
         allowClassRecap,
         pinRequired,

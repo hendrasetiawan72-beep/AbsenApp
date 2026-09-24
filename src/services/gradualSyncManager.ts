@@ -46,8 +46,12 @@ class GradualSyncManagerClass {
   private retryDelay: number = 2000;
 
   constructor() {
-    // Listen to online event to resume gradual sync
     if (typeof window !== 'undefined') {
+      try {
+        this.currentUid = localStorage.getItem('smk_active_teacher_uid');
+      } catch {}
+
+      // Listen to online event to resume gradual sync
       window.addEventListener('online', () => {
         this.notifyListeners();
         this.triggerGradualSync();
@@ -137,8 +141,15 @@ class GradualSyncManagerClass {
     }
 
     this.notifyListeners();
-    // Data is safely stored in browser localStorage.
-    // Cloud sync occurs when the user clicks the navigation button ("Sinkronkan Cloud").
+    // Schedule gradual sync to Cloud Firestore automatically (debounced 2 seconds)
+    const effectiveUid =
+      this.currentUid ||
+      (typeof window !== 'undefined'
+        ? localStorage.getItem('smk_active_teacher_uid')
+        : null);
+    if (effectiveUid && typeof navigator !== 'undefined' && navigator.onLine) {
+      this.triggerGradualSync(2000);
+    }
   }
 
   /**
@@ -287,6 +298,7 @@ class GradualSyncManagerClass {
         grades: Storage.getAllGrades(),
         agendas: Storage.getAllAgendas(),
         savings: Storage.getAllSavings(),
+        gradeHeadersMap: Storage.getAllGradeHeadersMap(),
       });
 
       // Mark all current queue categories as synced

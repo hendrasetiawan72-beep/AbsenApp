@@ -120,6 +120,17 @@ export const PublicTabunganView: React.FC<PublicTabunganViewProps> = ({
     const applyDataUpdate = (updatedData: PublicTabunganData | null) => {
       setIsLoading(false);
       if (updatedData) {
+        if (updatedData.isPublicEnabled !== true) {
+          updatedData.students = [];
+          updatedData.savings = [];
+          try {
+            localStorage.setItem(`cache_pub_tb_${shareId}`, JSON.stringify(updatedData));
+            if (updatedData.classId) {
+              const cleanC = updatedData.classId.replace(/[^a-zA-Z0-9_-]/g, '');
+              localStorage.setItem(`cache_pub_tb_tb_${cleanC}`, JSON.stringify(updatedData));
+            }
+          } catch {}
+        }
         setData(updatedData);
         setIsLiveConnected(true);
         const nowStr = new Date().toLocaleTimeString('id-ID', {
