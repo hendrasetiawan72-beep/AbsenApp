@@ -24,8 +24,9 @@ import {
   CheckSquare,
   Wallet,
   Database,
-  ShieldCheck,
   ChevronRight,
+  Sliders,
+  Layers,
 } from 'lucide-react';
 import { ActiveTab, ClassRoom, TeacherProfile } from '../types';
 import { SchoolLogo } from './SchoolLogo';
@@ -108,34 +109,50 @@ export const Navbar: React.FC<NavbarProps> = ({
     setIsSidebarOpen(false);
   };
 
+  const getActiveTabLabel = (tab: ActiveTab): string => {
+    switch (tab) {
+      case 'absensi':
+        return 'Presensi Siswa';
+      case 'nilai':
+        return 'Rekap Nilai';
+      case 'tabungan':
+        return 'Tabungan Siswa';
+      case 'agenda':
+        return 'Agenda Mengajar';
+      case 'statistik':
+        return 'Statistik & Resume';
+      case 'impor':
+        return 'Data Siswa';
+      case 'workspace':
+        return 'Workspace & Cloud';
+      case 'peta':
+        return 'Peta & Zonasi';
+      case 'laporan-ortu':
+        return 'Laporan Ortu (WA)';
+      case 'generator-modul':
+        return 'Generator Modul & LKPD';
+      case 'kisi-kartu-soal':
+        return 'Kisi-Kisi & Kartu Soal';
+      default:
+        return 'Modul';
+    }
+  };
+
+  const isCoreTab = activeTab === 'absensi' || activeTab === 'nilai' || activeTab === 'tabungan';
+
   return (
     <>
       <header className="bg-white border-b border-slate-200/90 sticky top-0 z-30 shadow-xs no-print backdrop-blur-md bg-white/95">
         {/* Primary Brand & Actions Bar */}
         <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between min-h-[58px] py-2 gap-2 sm:gap-4">
-            {/* Brand & School Logo + 3-line Hamburger Button */}
+            {/* Brand & School Logo */}
             <div className="flex items-center gap-2 sm:gap-3 min-w-0 shrink-0">
-              {/* Hamburger Button (Garis 3) */}
-              <button
-                id="btn-navbar-menu-hamburger"
-                type="button"
-                onClick={() => setIsSidebarOpen(true)}
-                title="Buka Bilah Sisi Garis 3 (Menu & Pengaturan)"
-                aria-label="Buka Menu Garis 3"
-                className="p-1.5 sm:p-2 -ml-1 text-slate-700 hover:text-indigo-600 hover:bg-slate-100 rounded-xl transition-all cursor-pointer flex items-center justify-center shrink-0 border border-slate-200/80 shadow-2xs"
-              >
-                <Menu className="w-5 h-5 text-slate-800" />
-              </button>
-
               <SchoolLogo size="md" className="p-1 bg-white rounded-xl shadow-xs shrink-0 ring-1 ring-slate-200/80" />
               
               <div className="min-w-0">
                 <div className="flex items-center gap-2">
-                  <h1 className="font-extrabold text-slate-900 text-sm sm:text-base tracking-tight truncate">
-                    SIM Presensi & Nilai
-                  </h1>
-                  <span className="hidden sm:inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200/70">
+                  <span className="font-extrabold text-slate-900 text-sm sm:text-base tracking-tight truncate">
                     SMK Muh Bawang
                   </span>
                 </div>
@@ -145,7 +162,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               </div>
             </div>
 
-            {/* Right Action Tools: Class Switcher & 3-line Menu Button */}
+            {/* Right Action Tools: Class Switcher, Cloud Status & 3-line Menu Button */}
             <div className="flex items-center gap-1.5 sm:gap-2.5 ml-auto shrink-0 justify-end">
               {/* Clean Class Selector Pill */}
               <div className="flex items-center gap-1 bg-slate-100/90 hover:bg-slate-200/70 p-0.5 sm:p-1 rounded-xl border border-slate-200/90 transition-colors">
@@ -255,158 +272,87 @@ export const Navbar: React.FC<NavbarProps> = ({
           </div>
         </div>
 
-        {/* Clean Immersive Navigation Tabs */}
-        <div className="border-t border-slate-100 bg-slate-50/70">
+        {/* Simplified Header Navigation: Core Navigation (Absensi, Nilai, Tabungan) Only */}
+        <div className="border-t border-slate-100 bg-slate-50/80">
           <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
-            <nav className="flex space-x-1 sm:space-x-1.5 overflow-x-auto py-1.5 scrollbar-none" aria-label="Tabs">
-              <button
-                id="tab-absensi"
-                onClick={() => onSelectTab('absensi')}
-                className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-xl whitespace-nowrap transition-all cursor-pointer ${
-                  activeTab === 'absensi'
-                    ? 'bg-indigo-600 text-white shadow-xs'
-                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
-                }`}
-              >
-                <CalendarCheck2 className="w-3.5 h-3.5" />
-                <span>Presensi Siswa</span>
-              </button>
+            <div className="flex items-center justify-between py-1.5 gap-2">
+              {/* Core Tabs: Absensi, Nilai, Tabungan */}
+              <nav className="flex items-center space-x-1 sm:space-x-2 overflow-x-auto scrollbar-none" aria-label="Core Navigation">
+                <button
+                  id="tab-absensi"
+                  onClick={() => onSelectTab('absensi')}
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-xl whitespace-nowrap transition-all cursor-pointer ${
+                    activeTab === 'absensi'
+                      ? 'bg-indigo-600 text-white shadow-xs ring-1 ring-indigo-500'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+                  }`}
+                >
+                  <CalendarCheck2 className="w-3.5 h-3.5" />
+                  <span>Presensi Siswa</span>
+                </button>
 
-              <button
-                id="tab-agenda"
-                onClick={() => onSelectTab('agenda')}
-                className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-xl whitespace-nowrap transition-all cursor-pointer ${
-                  activeTab === 'agenda'
-                    ? 'bg-indigo-600 text-white shadow-xs'
-                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
-                }`}
-              >
-                <BookOpen className="w-3.5 h-3.5" />
-                <span>Agenda Mengajar</span>
-              </button>
+                <button
+                  id="tab-nilai"
+                  onClick={() => onSelectTab('nilai')}
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-xl whitespace-nowrap transition-all cursor-pointer ${
+                    activeTab === 'nilai'
+                      ? 'bg-indigo-600 text-white shadow-xs ring-1 ring-indigo-500'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+                  }`}
+                >
+                  <GraduationCap className="w-3.5 h-3.5" />
+                  <span>Rekap Nilai</span>
+                </button>
 
-              <button
-                id="tab-nilai"
-                onClick={() => onSelectTab('nilai')}
-                className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-xl whitespace-nowrap transition-all cursor-pointer ${
-                  activeTab === 'nilai'
-                    ? 'bg-indigo-600 text-white shadow-xs'
-                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
-                }`}
-              >
-                <GraduationCap className="w-3.5 h-3.5" />
-                <span>Rekap Nilai</span>
-              </button>
+                <button
+                  id="tab-tabungan"
+                  onClick={() => onSelectTab('tabungan')}
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-xl whitespace-nowrap transition-all cursor-pointer ${
+                    activeTab === 'tabungan'
+                      ? 'bg-emerald-600 text-white shadow-xs ring-1 ring-emerald-400'
+                      : 'text-emerald-800 bg-emerald-50/70 hover:bg-emerald-100 border border-emerald-200/60'
+                  }`}
+                >
+                  <Wallet className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>Tabungan Siswa</span>
+                </button>
 
-              <button
-                id="tab-tabungan"
-                onClick={() => onSelectTab('tabungan')}
-                className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-xl whitespace-nowrap transition-all cursor-pointer ${
-                  activeTab === 'tabungan'
-                    ? 'bg-emerald-600 text-white shadow-xs ring-1 ring-emerald-400'
-                    : 'text-emerald-800 bg-emerald-50/70 hover:bg-emerald-100 border border-emerald-200/60'
-                }`}
-              >
-                <Wallet className="w-3.5 h-3.5 text-emerald-600" />
-                <span>Tabungan Siswa</span>
-              </button>
+                {/* If a secondary module is active, display an active pill with indicator */}
+                {!isCoreTab && (
+                  <div className="flex items-center gap-1.5 pl-2 ml-1 border-l border-slate-300 shrink-0">
+                    <span className="text-[11px] font-semibold text-slate-500 hidden md:inline">Modul Aktif:</span>
+                    <button
+                      type="button"
+                      onClick={() => setIsSidebarOpen(true)}
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-bold rounded-xl bg-indigo-50 text-indigo-800 border border-indigo-200 shadow-2xs hover:bg-indigo-100 transition-colors cursor-pointer"
+                      title="Buka bilah sisi untuk melihat atau beralih modul"
+                    >
+                      <Sparkles className="w-3.5 h-3.5 text-indigo-600" />
+                      <span className="truncate max-w-[130px] sm:max-w-none">{getActiveTabLabel(activeTab)}</span>
+                      <ChevronDown className="w-3 h-3 text-indigo-500" />
+                    </button>
+                  </div>
+                )}
+              </nav>
 
+              {/* Sidebar Drawer Opener Link Button on Right */}
               <button
-                id="tab-statistik"
-                onClick={() => onSelectTab('statistik')}
-                className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-xl whitespace-nowrap transition-all cursor-pointer ${
-                  activeTab === 'statistik'
-                    ? 'bg-indigo-600 text-white shadow-xs'
-                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
-                }`}
+                type="button"
+                onClick={() => setIsSidebarOpen(true)}
+                className="inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 text-xs font-bold text-slate-700 hover:text-indigo-600 hover:bg-slate-200/60 rounded-xl transition-all cursor-pointer shrink-0 border border-slate-200/70 shadow-2xs bg-white"
+                title="Buka Bilah Sisi Garis 3 untuk Fitur Sekunder (Peta, Laporan Ortu, Generator Modul, Kisi-Kisi, dll.)"
               >
-                <BarChart3 className="w-3.5 h-3.5" />
-                <span>Statistik & Resume</span>
+                <Layers className="w-3.5 h-3.5 text-indigo-600" />
+                <span className="hidden sm:inline">Modul Lainnya</span>
+                <span className="sm:hidden">Lainnya</span>
+                <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
               </button>
-
-              <button
-                id="tab-impor"
-                onClick={() => onSelectTab('impor')}
-                className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-xl whitespace-nowrap transition-all cursor-pointer ${
-                  activeTab === 'impor'
-                    ? 'bg-indigo-600 text-white shadow-xs'
-                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
-                }`}
-              >
-                <FileSpreadsheet className="w-3.5 h-3.5" />
-                <span>Data Siswa</span>
-              </button>
-
-              <button
-                id="tab-workspace"
-                onClick={() => onSelectTab('workspace')}
-                className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-xl whitespace-nowrap transition-all cursor-pointer ${
-                  activeTab === 'workspace'
-                    ? 'bg-indigo-600 text-white shadow-xs'
-                    : 'text-indigo-700 bg-indigo-50/70 hover:bg-indigo-100 border border-indigo-200/60'
-                }`}
-              >
-                <Cloud className="w-3.5 h-3.5" />
-                <span>Workspace & Cloud</span>
-              </button>
-
-              <button
-                id="tab-peta"
-                onClick={() => onSelectTab('peta')}
-                className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-xl whitespace-nowrap transition-all cursor-pointer ${
-                  activeTab === 'peta'
-                    ? 'bg-emerald-700 text-white shadow-xs'
-                    : 'text-emerald-700 bg-emerald-50/70 hover:bg-emerald-100 border border-emerald-200/60'
-                }`}
-              >
-                <MapPin className="w-3.5 h-3.5" />
-                <span>Peta & Zonasi</span>
-              </button>
-
-              <button
-                id="tab-laporan-ortu"
-                onClick={() => onSelectTab('laporan-ortu')}
-                className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-xl whitespace-nowrap transition-all cursor-pointer ${
-                  activeTab === 'laporan-ortu'
-                    ? 'bg-emerald-600 text-white shadow-xs'
-                    : 'text-emerald-800 bg-emerald-50/60 hover:bg-emerald-100 border border-emerald-200/50'
-                }`}
-              >
-                <MessageSquare className="w-3.5 h-3.5" />
-                <span>Laporan Ortu (WA)</span>
-              </button>
-
-              <button
-                id="tab-generator-modul"
-                onClick={() => onSelectTab('generator-modul')}
-                className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-bold rounded-xl whitespace-nowrap transition-all cursor-pointer ${
-                  activeTab === 'generator-modul'
-                    ? 'bg-gradient-to-r from-indigo-600 to-emerald-600 text-white shadow-xs ring-1 ring-emerald-300/40'
-                    : 'text-indigo-900 bg-indigo-50/80 hover:bg-indigo-100 border border-indigo-200/70 shadow-2xs'
-                }`}
-              >
-                <Sparkles className="w-3.5 h-3.5 text-amber-500 animate-pulse" />
-                <span>Generator Modul & LKPD</span>
-              </button>
-
-              <button
-                id="tab-kisi-kartu-soal"
-                onClick={() => onSelectTab('kisi-kartu-soal')}
-                className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-bold rounded-xl whitespace-nowrap transition-all cursor-pointer ${
-                  activeTab === 'kisi-kartu-soal'
-                    ? 'bg-amber-600 text-white shadow-xs ring-1 ring-amber-400'
-                    : 'text-amber-950 bg-amber-100/90 hover:bg-amber-200/80 border border-amber-300/90 shadow-2xs'
-                }`}
-              >
-                <CheckSquare className="w-3.5 h-3.5 text-amber-600" />
-                <span>Kisi-Kisi & Kartu Soal</span>
-              </button>
-            </nav>
+            </div>
           </div>
         </div>
       </header>
 
-      {/* BILAH SISI GARIS 3 NAVBAR (Slide-over Sidebar Drawer) */}
+      {/* BILAH SISI GARIS 3 (Collapsible Sidebar Drawer) */}
       {isSidebarOpen && (
         <div className="fixed inset-0 z-50 overflow-hidden no-print" role="dialog" aria-modal="true">
           {/* Backdrop */}
@@ -415,9 +361,9 @@ export const Navbar: React.FC<NavbarProps> = ({
             onClick={() => setIsSidebarOpen(false)}
           />
 
-          {/* Drawer Container */}
-          <div className="fixed inset-y-0 right-0 max-w-full flex pl-10">
-            <aside className="w-screen max-w-md bg-white shadow-2xl flex flex-col h-full transform transition-all duration-300 ease-in-out border-l border-slate-200">
+          {/* Drawer Container (Sliding in from left for natural tablet & desktop flow) */}
+          <div className="fixed inset-y-0 left-0 max-w-full flex pr-10 z-10">
+            <aside className="w-screen max-w-sm sm:max-w-md bg-white shadow-2xl flex flex-col h-full transform transition-all duration-300 ease-in-out border-r border-slate-200">
               {/* Drawer Top Header */}
               <div className="px-5 py-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
                 <div className="flex items-center gap-2.5">
@@ -426,7 +372,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                   </div>
                   <div>
                     <h2 className="text-sm font-extrabold text-slate-900 leading-tight">
-                      Bilah Sisi Menu & Pengaturan
+                      Bilah Sisi Menu & Fitur
                     </h2>
                     <p className="text-[11px] text-slate-500 font-medium">
                       SMK Muhammadiyah Bawang
@@ -577,7 +523,255 @@ export const Navbar: React.FC<NavbarProps> = ({
                   </div>
                 </div>
 
-                {/* 4. DATABASE & MIGRATION MANAGEMENT */}
+                {/* 4. FITUR SEKUNDER (Peta & Zonasi, Laporan Orang Tua, Generator Modul, Kisi-Kisi & Kartu Soal) */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between px-1">
+                    <h5 className="text-[11px] font-bold text-indigo-900 uppercase tracking-wider">
+                      Fitur Sekunder & Modul Unggulan
+                    </h5>
+                    <span className="text-[10px] font-semibold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full border border-indigo-200/60">
+                      Bilah Sisi
+                    </span>
+                  </div>
+
+                  <div className="space-y-2">
+                    {/* Peta & Zonasi */}
+                    <button
+                      id="tab-peta"
+                      type="button"
+                      onClick={() => handleSelectTabFromSidebar('peta')}
+                      className={`w-full flex items-center justify-between p-3 rounded-xl text-left transition-all cursor-pointer border ${
+                        activeTab === 'peta'
+                          ? 'bg-emerald-700 text-white border-emerald-800 shadow-xs'
+                          : 'bg-emerald-50/70 hover:bg-emerald-100/90 text-emerald-950 border-emerald-200/80 shadow-2xs'
+                      }`}
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className={`p-2 rounded-lg shrink-0 ${activeTab === 'peta' ? 'bg-emerald-800 text-white' : 'bg-white text-emerald-700 shadow-2xs'}`}>
+                          <MapPin className="w-5 h-5" />
+                        </div>
+                        <div className="min-w-0">
+                          <div className="font-extrabold text-xs flex items-center gap-1.5">
+                            <span>Peta & Zonasi</span>
+                            <span className={`text-[10px] px-1.5 py-0.2 rounded font-semibold ${activeTab === 'peta' ? 'bg-emerald-800 text-emerald-100' : 'bg-emerald-200/70 text-emerald-900'}`}>
+                              Geo
+                            </span>
+                          </div>
+                          <div className={`text-[11px] truncate mt-0.5 ${activeTab === 'peta' ? 'text-emerald-100' : 'text-emerald-800/80'}`}>
+                            Peta sebaran domisili siswa & radius zonasi
+                          </div>
+                        </div>
+                      </div>
+                      <ChevronRight className={`w-4 h-4 shrink-0 ${activeTab === 'peta' ? 'text-emerald-200' : 'text-emerald-600'}`} />
+                    </button>
+
+                    {/* Laporan Orang Tua (WhatsApp) */}
+                    <button
+                      id="tab-laporan-ortu"
+                      type="button"
+                      onClick={() => handleSelectTabFromSidebar('laporan-ortu')}
+                      className={`w-full flex items-center justify-between p-3 rounded-xl text-left transition-all cursor-pointer border ${
+                        activeTab === 'laporan-ortu'
+                          ? 'bg-emerald-600 text-white border-emerald-700 shadow-xs'
+                          : 'bg-emerald-50/50 hover:bg-emerald-100/80 text-emerald-950 border-emerald-200/70 shadow-2xs'
+                      }`}
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className={`p-2 rounded-lg shrink-0 ${activeTab === 'laporan-ortu' ? 'bg-emerald-700 text-white' : 'bg-white text-emerald-600 shadow-2xs'}`}>
+                          <MessageSquare className="w-5 h-5" />
+                        </div>
+                        <div className="min-w-0">
+                          <div className="font-extrabold text-xs flex items-center gap-1.5">
+                            <span>Laporan Orang Tua</span>
+                            <span className={`text-[10px] px-1.5 py-0.2 rounded font-semibold ${activeTab === 'laporan-ortu' ? 'bg-emerald-700 text-emerald-100' : 'bg-emerald-200/70 text-emerald-800'}`}>
+                              WhatsApp
+                            </span>
+                          </div>
+                          <div className={`text-[11px] truncate mt-0.5 ${activeTab === 'laporan-ortu' ? 'text-emerald-100' : 'text-emerald-700/80'}`}>
+                            Kirim resume absensi & catatan wali murid
+                          </div>
+                        </div>
+                      </div>
+                      <ChevronRight className={`w-4 h-4 shrink-0 ${activeTab === 'laporan-ortu' ? 'text-emerald-200' : 'text-emerald-600'}`} />
+                    </button>
+
+                    {/* Generator Modul & LKPD */}
+                    <button
+                      id="tab-generator-modul"
+                      type="button"
+                      onClick={() => handleSelectTabFromSidebar('generator-modul')}
+                      className={`w-full flex items-center justify-between p-3 rounded-xl text-left transition-all cursor-pointer border ${
+                        activeTab === 'generator-modul'
+                          ? 'bg-gradient-to-r from-indigo-600 to-indigo-700 text-white border-indigo-700 shadow-xs'
+                          : 'bg-indigo-50/70 hover:bg-indigo-100/90 text-indigo-950 border-indigo-200/80 shadow-2xs'
+                      }`}
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className={`p-2 rounded-lg shrink-0 ${activeTab === 'generator-modul' ? 'bg-indigo-800 text-white' : 'bg-white text-indigo-600 shadow-2xs'}`}>
+                          <Sparkles className="w-5 h-5 text-amber-500" />
+                        </div>
+                        <div className="min-w-0">
+                          <div className="font-extrabold text-xs flex items-center gap-1.5">
+                            <span>Generator Modul & LKPD</span>
+                            <span className={`text-[10px] px-1.5 py-0.2 rounded font-semibold ${activeTab === 'generator-modul' ? 'bg-indigo-800 text-indigo-100' : 'bg-indigo-200/80 text-indigo-900'}`}>
+                              AI Prompts
+                            </span>
+                          </div>
+                          <div className={`text-[11px] truncate mt-0.5 ${activeTab === 'generator-modul' ? 'text-indigo-100' : 'text-indigo-800/80'}`}>
+                            Modul ajar Kurikulum Merdeka & lembar kerja
+                          </div>
+                        </div>
+                      </div>
+                      <ChevronRight className={`w-4 h-4 shrink-0 ${activeTab === 'generator-modul' ? 'text-indigo-200' : 'text-indigo-600'}`} />
+                    </button>
+
+                    {/* Kisi-Kisi & Kartu Soal */}
+                    <button
+                      id="tab-kisi-kartu-soal"
+                      type="button"
+                      onClick={() => handleSelectTabFromSidebar('kisi-kartu-soal')}
+                      className={`w-full flex items-center justify-between p-3 rounded-xl text-left transition-all cursor-pointer border ${
+                        activeTab === 'kisi-kartu-soal'
+                          ? 'bg-amber-600 text-white border-amber-700 shadow-xs'
+                          : 'bg-amber-50/80 hover:bg-amber-100 text-amber-950 border-amber-300/80 shadow-2xs'
+                      }`}
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className={`p-2 rounded-lg shrink-0 ${activeTab === 'kisi-kartu-soal' ? 'bg-amber-700 text-white' : 'bg-white text-amber-600 shadow-2xs'}`}>
+                          <CheckSquare className="w-5 h-5 text-amber-600" />
+                        </div>
+                        <div className="min-w-0">
+                          <div className="font-extrabold text-xs flex items-center gap-1.5">
+                            <span>Kisi-Kisi & Kartu Soal</span>
+                            <span className={`text-[10px] px-1.5 py-0.2 rounded font-semibold ${activeTab === 'kisi-kartu-soal' ? 'bg-amber-700 text-amber-100' : 'bg-amber-200 text-amber-900'}`}>
+                              Bank Soal
+                            </span>
+                          </div>
+                          <div className={`text-[11px] truncate mt-0.5 ${activeTab === 'kisi-kartu-soal' ? 'text-amber-100' : 'text-amber-800/80'}`}>
+                            Penyusunan kisi-kisi dan kartu soal asesmen
+                          </div>
+                        </div>
+                      </div>
+                      <ChevronRight className={`w-4 h-4 shrink-0 ${activeTab === 'kisi-kartu-soal' ? 'text-amber-200' : 'text-amber-600'}`} />
+                    </button>
+                  </div>
+                </div>
+
+                {/* 5. FITUR PEMBELAJARAN & AKADEMIK LAINNYA */}
+                <div>
+                  <h5 className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2 px-1">
+                    Fitur Akademik & Pembelajaran
+                  </h5>
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    <button
+                      id="tab-agenda"
+                      type="button"
+                      onClick={() => handleSelectTabFromSidebar('agenda')}
+                      className={`flex items-center gap-2 p-2.5 rounded-xl font-bold transition-all text-left cursor-pointer ${
+                        activeTab === 'agenda'
+                          ? 'bg-indigo-600 text-white shadow-xs'
+                          : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200/70'
+                      }`}
+                    >
+                      <BookOpen className="w-3.5 h-3.5 shrink-0" />
+                      <span className="truncate">Agenda Mengajar</span>
+                    </button>
+
+                    <button
+                      id="tab-impor"
+                      type="button"
+                      onClick={() => handleSelectTabFromSidebar('impor')}
+                      className={`flex items-center gap-2 p-2.5 rounded-xl font-bold transition-all text-left cursor-pointer ${
+                        activeTab === 'impor'
+                          ? 'bg-indigo-600 text-white shadow-xs'
+                          : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200/70'
+                      }`}
+                    >
+                      <FileSpreadsheet className="w-3.5 h-3.5 shrink-0" />
+                      <span className="truncate">Data Siswa</span>
+                    </button>
+
+                    <button
+                      id="tab-statistik"
+                      type="button"
+                      onClick={() => handleSelectTabFromSidebar('statistik')}
+                      className={`flex items-center gap-2 p-2.5 rounded-xl font-bold transition-all text-left cursor-pointer ${
+                        activeTab === 'statistik'
+                          ? 'bg-indigo-600 text-white shadow-xs'
+                          : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200/70'
+                      }`}
+                    >
+                      <BarChart3 className="w-3.5 h-3.5 shrink-0" />
+                      <span className="truncate">Statistik Resume</span>
+                    </button>
+
+                    <button
+                      id="tab-workspace"
+                      type="button"
+                      onClick={() => handleSelectTabFromSidebar('workspace')}
+                      className={`flex items-center gap-2 p-2.5 rounded-xl font-bold transition-all text-left cursor-pointer ${
+                        activeTab === 'workspace'
+                          ? 'bg-indigo-600 text-white shadow-xs'
+                          : 'bg-indigo-50/70 hover:bg-indigo-100 text-indigo-700 border border-indigo-200/60'
+                      }`}
+                    >
+                      <Cloud className="w-3.5 h-3.5 shrink-0" />
+                      <span className="truncate">Workspace Cloud</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* 6. NAVIGASI UTAMA (CORE NAVIGATION QUICK LINKS IN DRAWER) */}
+                <div>
+                  <h5 className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2 px-1">
+                    Navigasi Utama (Core)
+                  </h5>
+                  <div className="grid grid-cols-3 gap-2 text-xs">
+                    <button
+                      id="tab-absensi-drawer"
+                      type="button"
+                      onClick={() => handleSelectTabFromSidebar('absensi')}
+                      className={`flex flex-col items-center justify-center p-2.5 rounded-xl font-bold transition-all text-center cursor-pointer gap-1 ${
+                        activeTab === 'absensi'
+                          ? 'bg-indigo-600 text-white shadow-xs'
+                          : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200/70'
+                      }`}
+                    >
+                      <CalendarCheck2 className="w-4 h-4 shrink-0" />
+                      <span className="text-[11px] truncate w-full">Presensi</span>
+                    </button>
+
+                    <button
+                      id="tab-nilai-drawer"
+                      type="button"
+                      onClick={() => handleSelectTabFromSidebar('nilai')}
+                      className={`flex flex-col items-center justify-center p-2.5 rounded-xl font-bold transition-all text-center cursor-pointer gap-1 ${
+                        activeTab === 'nilai'
+                          ? 'bg-indigo-600 text-white shadow-xs'
+                          : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200/70'
+                      }`}
+                    >
+                      <GraduationCap className="w-4 h-4 shrink-0" />
+                      <span className="text-[11px] truncate w-full">Nilai</span>
+                    </button>
+
+                    <button
+                      id="tab-tabungan-drawer"
+                      type="button"
+                      onClick={() => handleSelectTabFromSidebar('tabungan')}
+                      className={`flex flex-col items-center justify-center p-2.5 rounded-xl font-bold transition-all text-center cursor-pointer gap-1 ${
+                        activeTab === 'tabungan'
+                          ? 'bg-emerald-600 text-white shadow-xs'
+                          : 'bg-emerald-50/70 hover:bg-emerald-100 text-emerald-800 border border-emerald-200/70'
+                      }`}
+                    >
+                      <Wallet className="w-4 h-4 shrink-0 text-emerald-600" />
+                      <span className="text-[11px] truncate w-full">Tabungan</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* 7. DATABASE & MIGRATION MANAGEMENT */}
                 <div className="space-y-2.5">
                   <h5 className="text-[11px] font-bold text-slate-400 uppercase tracking-wider px-1">
                     Manajemen & Cadangan Database
@@ -632,144 +826,6 @@ export const Navbar: React.FC<NavbarProps> = ({
                       <ChevronRight className="w-4 h-4 text-indigo-500 group-hover:translate-x-0.5 transition-transform" />
                     </button>
                   )}
-                </div>
-
-                {/* 5. QUICK NAVIGATION TO MODULES */}
-                <div>
-                  <h5 className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2 px-1">
-                    Navigasi Cepat Modul
-                  </h5>
-                  <div className="grid grid-cols-2 gap-2 text-xs">
-                    <button
-                      type="button"
-                      onClick={() => handleSelectTabFromSidebar('absensi')}
-                      className={`flex items-center gap-2 p-2.5 rounded-xl font-bold transition-all text-left cursor-pointer ${
-                        activeTab === 'absensi'
-                          ? 'bg-indigo-600 text-white shadow-xs'
-                          : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200/70'
-                      }`}
-                    >
-                      <CalendarCheck2 className="w-3.5 h-3.5 shrink-0" />
-                      <span className="truncate">Presensi Siswa</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => handleSelectTabFromSidebar('agenda')}
-                      className={`flex items-center gap-2 p-2.5 rounded-xl font-bold transition-all text-left cursor-pointer ${
-                        activeTab === 'agenda'
-                          ? 'bg-indigo-600 text-white shadow-xs'
-                          : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200/70'
-                      }`}
-                    >
-                      <BookOpen className="w-3.5 h-3.5 shrink-0" />
-                      <span className="truncate">Agenda Mengajar</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => handleSelectTabFromSidebar('nilai')}
-                      className={`flex items-center gap-2 p-2.5 rounded-xl font-bold transition-all text-left cursor-pointer ${
-                        activeTab === 'nilai'
-                          ? 'bg-indigo-600 text-white shadow-xs'
-                          : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200/70'
-                      }`}
-                    >
-                      <GraduationCap className="w-3.5 h-3.5 shrink-0" />
-                      <span className="truncate">Rekap Nilai</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => handleSelectTabFromSidebar('tabungan')}
-                      className={`flex items-center gap-2 p-2.5 rounded-xl font-bold transition-all text-left cursor-pointer ${
-                        activeTab === 'tabungan'
-                          ? 'bg-emerald-600 text-white shadow-xs'
-                          : 'bg-emerald-50/70 hover:bg-emerald-100 text-emerald-800 border border-emerald-200/70'
-                      }`}
-                    >
-                      <Wallet className="w-3.5 h-3.5 shrink-0" />
-                      <span className="truncate">Tabungan Siswa</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => handleSelectTabFromSidebar('statistik')}
-                      className={`flex items-center gap-2 p-2.5 rounded-xl font-bold transition-all text-left cursor-pointer ${
-                        activeTab === 'statistik'
-                          ? 'bg-indigo-600 text-white shadow-xs'
-                          : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200/70'
-                      }`}
-                    >
-                      <BarChart3 className="w-3.5 h-3.5 shrink-0" />
-                      <span className="truncate">Statistik & Resume</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => handleSelectTabFromSidebar('impor')}
-                      className={`flex items-center gap-2 p-2.5 rounded-xl font-bold transition-all text-left cursor-pointer ${
-                        activeTab === 'impor'
-                          ? 'bg-indigo-600 text-white shadow-xs'
-                          : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200/70'
-                      }`}
-                    >
-                      <FileSpreadsheet className="w-3.5 h-3.5 shrink-0" />
-                      <span className="truncate">Data Siswa</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => handleSelectTabFromSidebar('peta')}
-                      className={`flex items-center gap-2 p-2.5 rounded-xl font-bold transition-all text-left cursor-pointer ${
-                        activeTab === 'peta'
-                          ? 'bg-emerald-700 text-white shadow-xs'
-                          : 'bg-emerald-50/60 hover:bg-emerald-100 text-emerald-700 border border-emerald-200/60'
-                      }`}
-                    >
-                      <MapPin className="w-3.5 h-3.5 shrink-0" />
-                      <span className="truncate">Peta & Zonasi</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => handleSelectTabFromSidebar('laporan-ortu')}
-                      className={`flex items-center gap-2 p-2.5 rounded-xl font-bold transition-all text-left cursor-pointer ${
-                        activeTab === 'laporan-ortu'
-                          ? 'bg-emerald-600 text-white shadow-xs'
-                          : 'bg-emerald-50/60 hover:bg-emerald-100 text-emerald-800 border border-emerald-200/60'
-                      }`}
-                    >
-                      <MessageSquare className="w-3.5 h-3.5 shrink-0" />
-                      <span className="truncate">Laporan Ortu WA</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => handleSelectTabFromSidebar('generator-modul')}
-                      className={`flex items-center gap-2 p-2.5 rounded-xl font-bold transition-all text-left cursor-pointer col-span-2 ${
-                        activeTab === 'generator-modul'
-                          ? 'bg-gradient-to-r from-indigo-600 to-emerald-600 text-white shadow-xs'
-                          : 'bg-indigo-50/80 hover:bg-indigo-100 text-indigo-900 border border-indigo-200/70'
-                      }`}
-                    >
-                      <Sparkles className="w-3.5 h-3.5 text-amber-500 shrink-0" />
-                      <span className="truncate">Generator Modul & LKPD</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => handleSelectTabFromSidebar('kisi-kartu-soal')}
-                      className={`flex items-center gap-2 p-2.5 rounded-xl font-bold transition-all text-left cursor-pointer col-span-2 ${
-                        activeTab === 'kisi-kartu-soal'
-                          ? 'bg-amber-600 text-white shadow-xs'
-                          : 'bg-amber-100/80 hover:bg-amber-200 text-amber-950 border border-amber-300/80'
-                      }`}
-                    >
-                      <CheckSquare className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-                      <span className="truncate">Kisi-Kisi & Kartu Soal</span>
-                    </button>
-                  </div>
                 </div>
               </div>
 
