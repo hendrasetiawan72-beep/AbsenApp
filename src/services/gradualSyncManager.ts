@@ -127,8 +127,12 @@ class GradualSyncManagerClass {
     }
   }
 
-  triggerGradualSync(delayMs: number = 1200): void {
+  triggerGradualSync(delayMs: number = 0): void {
     if (this.debounceTimer) clearTimeout(this.debounceTimer);
+    if (delayMs <= 0) {
+      this.processQueue().catch(() => {});
+      return;
+    }
     this.debounceTimer = setTimeout(() => {
       this.processQueue().catch(() => {});
     }, delayMs);

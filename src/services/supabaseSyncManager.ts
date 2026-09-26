@@ -93,11 +93,11 @@ class SupabaseSyncManagerClass {
     });
 
     if (this.state.isOnline && isSupabaseConfigured()) {
-      // Debounce trigger draining
+      // Trigger instant cloud sync without debounce delay
       if (this.syncTimeout) clearTimeout(this.syncTimeout);
       this.syncTimeout = setTimeout(() => {
         this.drainOfflineQueue();
-      }, 1000);
+      }, 0);
     }
   }
 

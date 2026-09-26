@@ -70,9 +70,39 @@ export const FirestoreService = {
     }
   },
 
-  queueWorkspaceSync(uid: string, _partial: Partial<UserWorkspaceData>): void {
+  queueWorkspaceSync(uid: string, partial: Partial<UserWorkspaceData>): void {
     SupabaseSyncManager.setActiveUid(uid);
     SupabaseSyncManager.markLocalChange();
+
+    // Direct background cloud persistence without delay
+    (async () => {
+      try {
+        if (partial.sessions && Array.isArray(partial.sessions)) {
+          await AttendanceService.saveAttendanceSessionsBatch(uid, partial.sessions);
+        }
+        if (partial.grades && Array.isArray(partial.grades)) {
+          await GradeService.saveGradesBatch(partial.grades);
+        }
+        if (partial.agendas && Array.isArray(partial.agendas)) {
+          await AgendaService.saveAgendasBatch(uid, partial.agendas);
+        }
+        if (partial.savings && Array.isArray(partial.savings)) {
+          await SavingsService.saveSavingsBatch(uid, partial.savings);
+        }
+        if (partial.students && Array.isArray(partial.students)) {
+          await StudentService.saveStudentsBatch(partial.students);
+        }
+        if (partial.classes && Array.isArray(partial.classes)) {
+          await ClassService.saveClassesBatch(uid, partial.classes);
+        }
+        if (partial.teacher) {
+          await AuthService.updateProfile(uid, partial.teacher);
+        }
+        SupabaseSyncManager.markCloudSynced();
+      } catch (err) {
+        console.warn('[DataService] Direct background sync notice:', err);
+      }
+    })();
   },
 
   async flushWorkspaceSync(uid: string): Promise<void> {

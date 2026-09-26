@@ -185,7 +185,7 @@ export const GradesView: React.FC<GradesViewProps> = ({
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [hasUnsavedChanges, localGrades, columnHeaders, classId]);
 
-  // Non-blocking debounced Cloud auto-sync (automatically saves changes in background after 500ms without locking the UI)
+  // Non-blocking Cloud auto-sync (automatically saves changes to cloud immediately without locking the UI)
   useEffect(() => {
     if (!hasUnsavedChanges) return;
 
@@ -207,7 +207,7 @@ export const GradesView: React.FC<GradesViewProps> = ({
       } finally {
         setIsAutoSyncing(false);
       }
-    }, 500);
+    }, 0);
 
     return () => clearTimeout(timer);
   }, [localGrades, columnHeaders, hasUnsavedChanges, classId, onSaveGrades]);

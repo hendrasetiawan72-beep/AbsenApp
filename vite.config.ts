@@ -78,7 +78,7 @@ export default defineConfig(() => {
         output: {
           manualChunks: {
             'vendor-react': ['react', 'react-dom'],
-            'vendor-firebase': ['firebase/app', 'firebase/firestore', 'firebase/auth'],
+            'vendor-supabase': ['@supabase/supabase-js'],
             'vendor-docs': ['xlsx', 'jspdf', 'html2canvas'],
             'vendor-icons': ['lucide-react'],
           },

@@ -737,10 +737,11 @@ export default function App() {
     studentId: string,
     status: AttendanceStatus
   ) => {
+    let targetSessionToSave: AttendanceSession | null = null;
     setAllSessions((prev) => {
       const next = prev.map((ses) => {
         if (ses.id !== sessionId) return ses;
-        return {
+        const updated = {
           ...ses,
           records: {
             ...ses.records,
@@ -750,14 +751,19 @@ export default function App() {
             },
           },
         };
+        targetSessionToSave = updated;
+        return updated;
       });
       Storage.setAllSessions(next);
-      // Real-time debounced cloud streaming in background (instant UI, no wait)
-      if (auth.currentUser?.uid) {
-        FirestoreService.queueWorkspaceSync(auth.currentUser.uid, { sessions: next });
-      }
       return next;
     });
+
+    // Immediate Cloud direct save without delay
+    if (auth.currentUser?.uid && targetSessionToSave) {
+      FirestoreService.saveAttendanceSession(auth.currentUser.uid, targetSessionToSave).catch((err: any) => {
+        console.warn('[DirectCloudSave] error saving session directly:', err);
+      });
+    }
   };
 
   const handleUpdateCatatan = (
@@ -765,10 +771,11 @@ export default function App() {
     studentId: string,
     catatan: string
   ) => {
+    let targetSessionToSave: AttendanceSession | null = null;
     setAllSessions((prev) => {
       const next = prev.map((ses) => {
         if (ses.id !== sessionId) return ses;
-        return {
+        const updated = {
           ...ses,
           records: {
             ...ses.records,
@@ -778,16 +785,22 @@ export default function App() {
             },
           },
         };
+        targetSessionToSave = updated;
+        return updated;
       });
       Storage.setAllSessions(next);
-      if (auth.currentUser?.uid) {
-        FirestoreService.queueWorkspaceSync(auth.currentUser.uid, { sessions: next });
-      }
       return next;
     });
+
+    if (auth.currentUser?.uid && targetSessionToSave) {
+      FirestoreService.saveAttendanceSession(auth.currentUser.uid, targetSessionToSave).catch((err: any) => {
+        console.warn('[DirectCloudSave] error saving remarks directly:', err);
+      });
+    }
   };
 
   const handleMarkAllPresent = (sessionId: string) => {
+    let targetSessionToSave: AttendanceSession | null = null;
     setAllSessions((prev) => {
       const next = prev.map((ses) => {
         if (ses.id !== sessionId) return ses;
@@ -798,14 +811,20 @@ export default function App() {
             catatan: newRecords[std.id]?.catatan || '',
           };
         });
-        return { ...ses, records: newRecords };
+        const updated = { ...ses, records: newRecords };
+        targetSessionToSave = updated;
+        return updated;
       });
       Storage.setAllSessions(next);
-      if (auth.currentUser?.uid) {
-        FirestoreService.queueWorkspaceSync(auth.currentUser.uid, { sessions: next });
-      }
       return next;
     });
+
+    if (auth.currentUser?.uid && targetSessionToSave) {
+      FirestoreService.saveAttendanceSession(auth.currentUser.uid, targetSessionToSave).catch((err: any) => {
+        console.warn('[DirectCloudSave] error saving batch presence:', err);
+      });
+    }
+
     showToast(
       'Semua siswa berhasil diset Masuk (Hadir) & otomatis disinkronisasi.',
       'info'
@@ -813,17 +832,24 @@ export default function App() {
   };
 
   const handleResetSession = (sessionId: string) => {
+    let targetSessionToSave: AttendanceSession | null = null;
     setAllSessions((prev) => {
       const next = prev.map((ses) => {
         if (ses.id !== sessionId) return ses;
-        return { ...ses, records: {} };
+        const updated = { ...ses, records: {} };
+        targetSessionToSave = updated;
+        return updated;
       });
       Storage.setAllSessions(next);
-      if (auth.currentUser?.uid) {
-        FirestoreService.queueWorkspaceSync(auth.currentUser.uid, { sessions: next });
-      }
       return next;
     });
+
+    if (auth.currentUser?.uid && targetSessionToSave) {
+      FirestoreService.saveAttendanceSession(auth.currentUser.uid, targetSessionToSave).catch((err: any) => {
+        console.warn('[DirectCloudSave] error resetting session:', err);
+      });
+    }
+
     showToast(
       'Status presensi direset & otomatis disinkronisasi.',
       'info'
